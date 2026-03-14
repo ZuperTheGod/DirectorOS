@@ -6,6 +6,7 @@ import shotsRouter from "./shots";
 import assetsRouter from "./assets";
 import directorRouter from "./director";
 import generationJobsRouter from "./generation-jobs";
+import generateImageRouter from "./generate-image";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(shotsRouter);
 router.use(assetsRouter);
 router.use(directorRouter);
 router.use(generationJobsRouter);
+router.use(generateImageRouter);
 
 export default router;

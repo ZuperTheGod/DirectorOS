@@ -25,7 +25,9 @@ function Router() {
         {/* Project Specific Routes */}
         <Route path="/projects/:id/director" component={Director} />
         <Route path="/projects/:id/storyboard" component={Storyboard} />
+        <Route path="/projects/:id/image-studio/:shotId" component={ImageStudio} />
         <Route path="/projects/:id/image-studio" component={ImageStudio} />
+        <Route path="/projects/:id/video-studio/:shotId" component={VideoStudio} />
         <Route path="/projects/:id/video-studio" component={VideoStudio} />
         <Route path="/projects/:id/editor" component={Editor} />
         <Route path="/projects/:id/audio" component={AudioStudio} />
