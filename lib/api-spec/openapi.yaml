@@ -1,22 +1,32 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: DirectorOS API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: projects
+    description: Project management
+  - name: scenes
+    description: Scene management
+  - name: shots
+    description: Shot management
+  - name: assets
+    description: Asset management
+  - name: director
+    description: AI Director operations
+  - name: generation
+    description: Generation job operations
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +34,356 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      summary: List all projects
+      responses:
+        "200":
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      operationId: createProject
+      tags: [projects]
+      summary: Create a new project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectInput"
+      responses:
+        "201":
+          description: Created project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  /projects/{projectId}:
+    get:
+      operationId: getProject
+      tags: [projects]
+      summary: Get project details
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectDetail"
+    patch:
+      operationId: updateProject
+      tags: [projects]
+      summary: Update a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectInput"
+      responses:
+        "200":
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+    delete:
+      operationId: deleteProject
+      tags: [projects]
+      summary: Delete a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /projects/{projectId}/scenes:
+    get:
+      operationId: listScenes
+      tags: [scenes]
+      summary: List scenes in a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of scenes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Scene"
+    post:
+      operationId: createScene
+      tags: [scenes]
+      summary: Create a scene
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSceneInput"
+      responses:
+        "201":
+          description: Created scene
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scene"
+
+  /scenes/{sceneId}:
+    patch:
+      operationId: updateScene
+      tags: [scenes]
+      summary: Update a scene
+      parameters:
+        - name: sceneId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSceneInput"
+      responses:
+        "200":
+          description: Updated scene
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scene"
+    delete:
+      operationId: deleteScene
+      tags: [scenes]
+      summary: Delete a scene
+      parameters:
+        - name: sceneId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /scenes/{sceneId}/shots:
+    get:
+      operationId: listShots
+      tags: [shots]
+      summary: List shots in a scene
+      parameters:
+        - name: sceneId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of shots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Shot"
+    post:
+      operationId: createShot
+      tags: [shots]
+      summary: Create a shot
+      parameters:
+        - name: sceneId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateShotInput"
+      responses:
+        "201":
+          description: Created shot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shot"
+
+  /shots/{shotId}:
+    patch:
+      operationId: updateShot
+      tags: [shots]
+      summary: Update a shot
+      parameters:
+        - name: shotId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateShotInput"
+      responses:
+        "200":
+          description: Updated shot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shot"
+    delete:
+      operationId: deleteShot
+      tags: [shots]
+      summary: Delete a shot
+      parameters:
+        - name: shotId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /projects/{projectId}/assets:
+    get:
+      operationId: listAssets
+      tags: [assets]
+      summary: List assets in a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: assetType
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [image, video, audio, vfx, mask, depth_map, export]
+      responses:
+        "200":
+          description: List of assets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Asset"
+
+  /projects/{projectId}/director/chat:
+    post:
+      operationId: directorChat
+      tags: [director]
+      summary: Send a message to the AI Director
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DirectorChatInput"
+      responses:
+        "200":
+          description: Director response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectorChatResponse"
+
+  /projects/{projectId}/director/generate-storyboard:
+    post:
+      operationId: generateStoryboard
+      tags: [director]
+      summary: Auto-generate storyboard from project concept
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateStoryboardInput"
+      responses:
+        "200":
+          description: Generated storyboard structure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateStoryboardResponse"
+
+  /projects/{projectId}/generation-jobs:
+    get:
+      operationId: listGenerationJobs
+      tags: [generation]
+      summary: List generation jobs for a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of generation jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GenerationJob"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +394,455 @@ components:
       required:
         - status
 
+    Project:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [draft, active, completed, archived]
+        aspectRatio:
+          type: string
+          nullable: true
+        targetDuration:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - status
+        - createdAt
+        - updatedAt
+
+    ProjectDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [draft, active, completed, archived]
+        aspectRatio:
+          type: string
+          nullable: true
+        targetDuration:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        scenes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SceneWithShots"
+        assetCount:
+          type: integer
+        generationJobCount:
+          type: integer
+      required:
+        - id
+        - name
+        - status
+        - createdAt
+        - updatedAt
+        - scenes
+        - assetCount
+        - generationJobCount
+
+    CreateProjectInput:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        aspectRatio:
+          type: string
+          nullable: true
+        targetDuration:
+          type: integer
+          nullable: true
+      required:
+        - name
+
+    UpdateProjectInput:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [draft, active, completed, archived]
+        aspectRatio:
+          type: string
+          nullable: true
+        targetDuration:
+          type: integer
+          nullable: true
+
+    Scene:
+      type: object
+      properties:
+        id:
+          type: integer
+        projectId:
+          type: integer
+        name:
+          type: string
+        orderIndex:
+          type: integer
+        summary:
+          type: string
+          nullable: true
+        startTimeMs:
+          type: integer
+          nullable: true
+        endTimeMs:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - projectId
+        - name
+        - orderIndex
+        - createdAt
+
+    SceneWithShots:
+      type: object
+      properties:
+        id:
+          type: integer
+        projectId:
+          type: integer
+        name:
+          type: string
+        orderIndex:
+          type: integer
+        summary:
+          type: string
+          nullable: true
+        startTimeMs:
+          type: integer
+          nullable: true
+        endTimeMs:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        shots:
+          type: array
+          items:
+            $ref: "#/components/schemas/Shot"
+      required:
+        - id
+        - projectId
+        - name
+        - orderIndex
+        - createdAt
+        - shots
+
+    CreateSceneInput:
+      type: object
+      properties:
+        name:
+          type: string
+        orderIndex:
+          type: integer
+        summary:
+          type: string
+          nullable: true
+        startTimeMs:
+          type: integer
+          nullable: true
+        endTimeMs:
+          type: integer
+          nullable: true
+      required:
+        - name
+        - orderIndex
+
+    UpdateSceneInput:
+      type: object
+      properties:
+        name:
+          type: string
+        orderIndex:
+          type: integer
+        summary:
+          type: string
+          nullable: true
+        startTimeMs:
+          type: integer
+          nullable: true
+        endTimeMs:
+          type: integer
+          nullable: true
+
+    Shot:
+      type: object
+      properties:
+        id:
+          type: integer
+        sceneId:
+          type: integer
+        orderIndex:
+          type: integer
+        shotType:
+          type: string
+          enum: [wide, medium, close_up, extreme_close_up, over_shoulder, pov, aerial, low_angle, high_angle, dutch_angle, tracking, establishing]
+          nullable: true
+        durationMs:
+          type: integer
+          nullable: true
+        promptSummary:
+          type: string
+          nullable: true
+        cameraIntent:
+          type: object
+          nullable: true
+        motionIntent:
+          type: object
+          nullable: true
+        status:
+          type: string
+          enum: [empty, has_frame, has_video, approved, locked]
+        thumbnailUrl:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - sceneId
+        - orderIndex
+        - status
+        - createdAt
+
+    CreateShotInput:
+      type: object
+      properties:
+        orderIndex:
+          type: integer
+        shotType:
+          type: string
+          enum: [wide, medium, close_up, extreme_close_up, over_shoulder, pov, aerial, low_angle, high_angle, dutch_angle, tracking, establishing]
+          nullable: true
+        durationMs:
+          type: integer
+          nullable: true
+        promptSummary:
+          type: string
+          nullable: true
+        cameraIntent:
+          type: object
+          nullable: true
+        motionIntent:
+          type: object
+          nullable: true
+      required:
+        - orderIndex
+
+    UpdateShotInput:
+      type: object
+      properties:
+        orderIndex:
+          type: integer
+        shotType:
+          type: string
+          enum: [wide, medium, close_up, extreme_close_up, over_shoulder, pov, aerial, low_angle, high_angle, dutch_angle, tracking, establishing]
+          nullable: true
+        durationMs:
+          type: integer
+          nullable: true
+        promptSummary:
+          type: string
+          nullable: true
+        cameraIntent:
+          type: object
+          nullable: true
+        motionIntent:
+          type: object
+          nullable: true
+        status:
+          type: string
+          enum: [empty, has_frame, has_video, approved, locked]
+
+    Asset:
+      type: object
+      properties:
+        id:
+          type: integer
+        projectId:
+          type: integer
+        assetType:
+          type: string
+          enum: [image, video, audio, vfx, mask, depth_map, export]
+        storageUri:
+          type: string
+        thumbnailUri:
+          type: string
+          nullable: true
+        width:
+          type: integer
+          nullable: true
+        height:
+          type: integer
+          nullable: true
+        durationMs:
+          type: integer
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - projectId
+        - assetType
+        - storageUri
+        - createdAt
+
+    DirectorChatInput:
+      type: object
+      properties:
+        message:
+          type: string
+        conversationHistory:
+          type: array
+          items:
+            type: object
+            properties:
+              role:
+                type: string
+                enum: [user, assistant]
+              content:
+                type: string
+            required:
+              - role
+              - content
+      required:
+        - message
+
+    DirectorChatResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        structuredIntent:
+          type: object
+          nullable: true
+        suggestions:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              label:
+                type: string
+              description:
+                type: string
+            required:
+              - type
+              - label
+              - description
+        reasoning:
+          type: string
+          nullable: true
+      required:
+        - message
+        - suggestions
+
+    GenerateStoryboardInput:
+      type: object
+      properties:
+        concept:
+          type: string
+        targetDurationSeconds:
+          type: integer
+          nullable: true
+        style:
+          type: string
+          nullable: true
+        mood:
+          type: string
+          nullable: true
+      required:
+        - concept
+
+    GenerateStoryboardResponse:
+      type: object
+      properties:
+        scenes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SceneWithShots"
+        directorNotes:
+          type: string
+          nullable: true
+      required:
+        - scenes
+
+    GenerationJob:
+      type: object
+      properties:
+        id:
+          type: integer
+        projectId:
+          type: integer
+        jobType:
+          type: string
+          enum: [image, video, audio, vfx]
+        provider:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+        progress:
+          type: number
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - id
+        - projectId
+        - jobType
+        - status
+        - createdAt

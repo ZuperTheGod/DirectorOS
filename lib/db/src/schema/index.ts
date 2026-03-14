@@ -1,20 +1,22 @@
-// Export your models here. Add one export per file
-// export * from "./posts";
-//
-// Each model/table should ideally be split into different files.
-// Each model/table should define a Drizzle table, insert schema, and types:
-//
-//   import { pgTable, text, serial } from "drizzle-orm/pg-core";
-//   import { createInsertSchema } from "drizzle-zod";
-//   import { z } from "zod/v4";
-//
-//   export const postsTable = pgTable("posts", {
-//     id: serial("id").primaryKey(),
-//     title: text("title").notNull(),
-//   });
-//
-//   export const insertPostSchema = createInsertSchema(postsTable).omit({ id: true });
-//   export type InsertPost = z.infer<typeof insertPostSchema>;
-//   export type Post = typeof postsTable.$inferSelect;
-
-export {}
+export * from "./users";
+export * from "./projects";
+export * from "./project-profiles";
+export * from "./scenes";
+export * from "./shots";
+export * from "./storyboard-frames";
+export * from "./assets";
+export * from "./asset-versions";
+export * from "./prompt-versions";
+export * from "./generation-jobs";
+export * from "./evaluation-results";
+export * from "./continuity-profiles";
+export * from "./character-profiles";
+export * from "./style-profiles";
+export * from "./vfx-placements";
+export * from "./timeline-sequences";
+export * from "./timeline-clips";
+export * from "./audio-cues";
+export * from "./user-action-events";
+export * from "./preference-signals";
+export * from "./conversations";
+export * from "./messages";

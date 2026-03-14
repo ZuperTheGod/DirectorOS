@@ -1,0 +1,19 @@
+packages:
+  "framer-motion": "For cinematic layout transitions, glowing effects, and smooth panel animations"
+  "date-fns": "For formatting human-readable timestamps on projects and assets"
+  "lucide-react": "For beautiful, consistent iconography across the workspace shell"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility for merging tailwind classes without style conflicts"
+
+images:
+  - path: "artifacts/director-os/public/images/hero-bg.png"
+    description: "Abstract cinematic gradient mesh in deep black, electric purple, and cool blue with soft volumetric lighting and subtle film grain"
+    aspect_ratio: "16:9"
+  - path: "artifacts/director-os/public/images/empty-film.png"
+    description: "A beautifully lit, abstract 3D render of a film reel and a camera lens on a dark reflective surface with purple edge lighting"
+    aspect_ratio: "16:9"
+
+notes:
+  - "Using API hooks from @workspace/api-client-react as per workspace configuration."
+  - "Defaulting to a forced dark theme to match the 'dark cinematic professional' spec."
+  - "Using wouter for routing."
