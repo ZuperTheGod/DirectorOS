@@ -62,6 +62,8 @@ export default function VideoStudio() {
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [aiReasoning, setAiReasoning] = useState<string | null>(null);
   const [promptError, setPromptError] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
 
   const allShots: ShotData[] = useMemo(() => {
     if (!project?.scenes) return [];
@@ -139,11 +141,34 @@ export default function VideoStudio() {
     }
   };
 
-  const handleGenerateVideo = () => {
+  const handleGenerateVideo = async () => {
+    if (!selectedShot) return;
     setIsGeneratingVideo(true);
-    setTimeout(() => {
+    setVideoError(null);
+
+    try {
+      const res = await fetch(`${BASE}/api/shots/${selectedShot.id}/generate-video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: videoPrompt,
+          frames: Math.round((selectedShot.durationMs / 1000) * 24),
+          motionStrength: motionStrength[0],
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Video generation failed");
+      }
+
+      const data = await res.json();
+      setGeneratedVideoUrl(`${BASE}${data.videoUrl}`);
+    } catch (err: any) {
+      setVideoError(err.message);
+    } finally {
       setIsGeneratingVideo(false);
-    }, 3000);
+    }
   };
 
   return (
@@ -350,8 +375,18 @@ export default function VideoStudio() {
             >
               <Loader2 className="w-4 h-4 animate-spin text-primary" />
               <span className="text-sm text-muted-foreground">
-                Video generation is a preview feature — coming soon
+                Generating video via Wan2...
               </span>
+            </motion.div>
+          )}
+
+          {videoError && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-4 bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-2 rounded-xl text-sm max-w-lg text-center"
+            >
+              {videoError}
             </motion.div>
           )}
         </div>

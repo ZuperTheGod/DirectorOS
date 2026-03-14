@@ -7,10 +7,9 @@ import {
   storyboardFramesTable,
   generationJobsTable,
   scenesTable,
-  projectsTable,
 } from "@workspace/db";
-import { generateImageBuffer } from "@workspace/integrations-openai-ai-server/image";
-import { openai } from "@workspace/integrations-openai-ai-server";
+import { generateImage } from "../services/connectors/image-connector";
+import { chatCompletion } from "../services/connectors/llm-connector";
 import { buildImagePrompt } from "../services/director-agent";
 import * as fs from "fs";
 import * as path from "path";
@@ -39,6 +38,7 @@ router.post("/shots/:shotId/generate-image", async (req, res): Promise<void> => 
   }
 
   const customPrompt = req.body?.prompt;
+  const negativePrompt = req.body?.negativePrompt;
 
   const prompt = customPrompt || buildImagePrompt({
     promptSummary: shot.promptSummary || "A cinematic shot",
@@ -53,12 +53,17 @@ router.post("/shots/:shotId/generate-image", async (req, res): Promise<void> => 
     const [job] = await db.insert(generationJobsTable).values({
       projectId: projectId || 0,
       jobType: "image",
-      provider: "openai-gpt-image-1",
-      requestJson: { prompt, shotId },
+      provider: "comfyui",
+      requestJson: { prompt, negativePrompt, shotId },
       status: "processing",
     }).returning();
 
-    const buffer = await generateImageBuffer(prompt, "1024x1024");
+    const buffer = await generateImage({
+      prompt,
+      negativePrompt: negativePrompt || undefined,
+      width: 1024,
+      height: 1024,
+    });
 
     ensureAssetsDir();
     const filename = `shot_${shotId}_${Date.now()}.png`;
@@ -74,7 +79,7 @@ router.post("/shots/:shotId/generate-image", async (req, res): Promise<void> => 
       thumbnailUri: imageUrl,
       width: 1024,
       height: 1024,
-      metadataJson: { prompt, shotId, generationJobId: job.id },
+      metadataJson: { prompt, negativePrompt, shotId, generationJobId: job.id, provider: "comfyui" },
     }).returning();
 
     await db.insert(storyboardFramesTable).values({
@@ -165,7 +170,11 @@ router.post("/projects/:projectId/generate-all-images", async (req, res): Promis
       })}\n\n`);
 
       try {
-        const buffer = await generateImageBuffer(prompt, "1024x1024");
+        const buffer = await generateImage({
+          prompt,
+          width: 1024,
+          height: 1024,
+        });
 
         ensureAssetsDir();
         const filename = `shot_${shot.id}_${Date.now()}.png`;
@@ -180,7 +189,7 @@ router.post("/projects/:projectId/generate-all-images", async (req, res): Promis
           thumbnailUri: imageUrl,
           width: 1024,
           height: 1024,
-          metadataJson: { prompt, shotId: shot.id },
+          metadataJson: { prompt, shotId: shot.id, provider: "comfyui" },
         }).returning();
 
         await db.insert(storyboardFramesTable).values({
@@ -231,9 +240,7 @@ router.post("/shots/:shotId/generate-video-prompt", async (req, res): Promise<vo
   }
 
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
-      max_completion_tokens: 2048,
+    const content = await chatCompletion({
       messages: [
         {
           role: "system",
@@ -256,10 +263,10 @@ router.post("/shots/:shotId/generate-video-prompt", async (req, res): Promise<vo
           content: `Shot details:\n- Type: ${shot.shotType}\n- Description: ${shot.promptSummary}\n- Camera Intent: ${JSON.stringify(shot.cameraIntentJson)}\n- Motion Intent: ${JSON.stringify(shot.motionIntentJson)}\n- Duration: ${shot.durationMs}ms\n\nTransform this into an optimal video generation prompt.`
         }
       ],
+      temperature: 0.7,
       response_format: { type: "json_object" },
     });
 
-    const content = response.choices[0]?.message?.content;
     if (!content) {
       res.status(500).json({ error: "No response from AI" });
       return;

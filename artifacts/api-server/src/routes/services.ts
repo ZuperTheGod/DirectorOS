@@ -1,0 +1,31 @@
+import { Router, type IRouter } from "express";
+import { checkAllServices } from "../services/connectors";
+import config from "../config/ai-services";
+
+const router: IRouter = Router();
+
+router.get("/services/status", async (_req, res): Promise<void> => {
+  const statuses = await checkAllServices();
+  res.json({
+    services: statuses,
+    config: {
+      lmstudio: { url: config.lmstudio.url, model: config.lmstudio.model },
+      comfyui: { url: config.comfyui.url },
+    },
+  });
+});
+
+router.post("/services/test/:serviceName", async (req, res): Promise<void> => {
+  const { serviceName } = req.params;
+  const statuses = await checkAllServices();
+  const service = statuses.find(s => s.name.toLowerCase().replace(/\s+/g, "") === serviceName.toLowerCase().replace(/\s+/g, ""));
+
+  if (!service) {
+    res.status(404).json({ error: `Unknown service: ${serviceName}` });
+    return;
+  }
+
+  res.json(service);
+});
+
+export default router;

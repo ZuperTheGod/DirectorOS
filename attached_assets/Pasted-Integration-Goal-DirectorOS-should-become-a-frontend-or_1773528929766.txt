@@ -1,0 +1,348 @@
+Integration Goal
+
+DirectorOS should become a frontend orchestration layer that connects to local AI tools via APIs.
+
+New architecture:
+
+DirectorOS (Frontend + API Server)
+        │
+        ├── LM Studio → AI Director reasoning
+        ├── ComfyUI → image generation workflows
+        ├── Wan2 → video generation
+        └── FFmpeg → timeline rendering
+
+
+DirectorOS remains the creative interface, while external tools perform the heavy AI work.
+
+1. LM Studio Integration (AI Director)
+
+LM Studio runs LLMs locally and exposes an OpenAI-compatible API.
+
+Typical endpoint:
+
+http://localhost:1234/v1/chat/completions
+
+Task for AI coder
+
+Create a service module:
+
+modules/llm/lmstudio.ts
+
+Requirements
+
+DirectorOS must:
+
+send prompts to LM Studio
+
+receive streaming responses
+
+support structured output for scene generation
+
+Example implementation outline
+import axios from "axios";
+
+export async function callLMStudio(messages) {
+  const response = await axios.post(
+    "http://localhost:1234/v1/chat/completions",
+    {
+      model: "local-model",
+      messages,
+      temperature: 0.7,
+      stream: false
+    }
+  );
+
+  return response.data.choices[0].message.content;
+}
+
+Update Director Endpoint
+
+Modify:
+
+/api/projects/:projectId/director/chat
+
+
+Replace OpenAI call with:
+
+LM Studio call
+
+Director Tasks Using LM Studio
+
+LM Studio should handle:
+
+idea interpretation
+scene planning
+shot planning
+prompt creation
+video prompt optimization
+
+2. ComfyUI Integration (Image Generation)
+
+ComfyUI exposes a REST API for running workflows.
+
+Default endpoint:
+
+http://localhost:8188
+
+Task for AI coder
+
+Create a new service module:
+
+modules/comfyui/comfyClient.ts
+
+Function
+
+Submit generation jobs to ComfyUI workflows.
+
+Example request:
+
+import axios from "axios";
+
+export async function runComfyWorkflow(workflow) {
+  const response = await axios.post(
+    "http://localhost:8188/prompt",
+    workflow
+  );
+
+  return response.data;
+}
+
+Image Generation Workflow
+
+DirectorOS should send:
+
+prompt
+negative prompt
+resolution
+seed
+
+
+to a ComfyUI workflow.
+
+Example workflow type:
+
+text_to_image.json
+
+Backend Endpoint
+
+Modify:
+
+POST /api/shots/:shotId/generate-image
+
+
+Instead of OpenAI image generation:
+
+Build ComfyUI workflow JSON
+
+Send workflow to ComfyUI
+
+Wait for output image
+
+Save image to project assets
+
+3. Wan2 Integration (Video Generation)
+
+Wan2 can be run locally and integrated through:
+
+ComfyUI workflows
+
+Python server wrapper
+
+The simplest integration is via ComfyUI workflows.
+
+Task for AI coder
+
+Create new module:
+
+modules/video_generation/wanClient.ts
+
+Example request
+
+DirectorOS should send:
+
+image input
+video prompt
+duration
+camera motion
+seed
+
+
+to a Wan workflow.
+
+Example function:
+
+export async function generateVideo(workflow) {
+  const response = await axios.post(
+    "http://localhost:8188/prompt",
+    workflow
+  );
+
+  return response.data;
+}
+
+Video Workflow
+
+DirectorOS loads:
+
+workflows/wan_video.json
+
+
+Inject parameters:
+
+image
+prompt
+frames
+motion_strength
+
+Backend Endpoint
+
+Implement:
+
+POST /api/shots/:shotId/generate-video
+
+
+Steps:
+
+Load shot image
+Create Wan workflow
+Send workflow to ComfyUI
+Wait for output
+Save video asset
+Update shot record
+
+4. FFmpeg Integration (Timeline Export)
+
+Timeline rendering should use FFmpeg.
+
+Task for AI coder
+
+Create module:
+
+modules/render/ffmpegRenderer.ts
+
+Function
+
+Combine clips into final video.
+
+Example:
+
+import { exec } from "child_process";
+
+export function renderTimeline(clips, output) {
+  const inputs = clips.map(c => `-i ${c}`).join(" ");
+  
+  const command = `
+    ffmpeg ${inputs}
+    -filter_complex concat=n=${clips.length}:v=1:a=0
+    -y ${output}
+  `;
+
+  exec(command);
+}
+
+Endpoint
+POST /api/projects/:id/export
+
+
+Pipeline:
+
+Timeline clips
+↓
+FFmpeg render
+↓
+Final MP4
+
+5. System Configuration
+
+Add configuration file:
+
+config/ai_services.ts
+
+
+Example:
+
+export const services = {
+  lmstudio: "http://localhost:1234",
+  comfyui: "http://localhost:8188"
+};
+
+
+DirectorOS should auto-detect running services.
+
+6. UI Changes
+
+Add AI Providers panel in settings.
+
+Example:
+
+AI Services
+☑ LM Studio connected
+☑ ComfyUI connected
+☑ Wan Video available
+
+
+Users can test connections.
+
+7. Updated Workflow
+
+After integration, DirectorOS pipeline becomes:
+
+User idea
+↓
+LM Studio (AI Director)
+↓
+Storyboard generation
+↓
+ComfyUI image generation
+↓
+Wan2 video generation
+↓
+Timeline editor
+↓
+FFmpeg render
+
+8. Development Order for AI Coder
+
+Tell the AI coder to implement integrations in this order:
+
+LM Studio integration
+
+ComfyUI image generation
+
+Wan2 video workflow
+
+FFmpeg timeline export
+
+UI service connection status
+
+9. Success Criteria
+
+The integration is complete when:
+
+User workflow works:
+
+Idea
+↓
+AI Director generates storyboard
+↓
+Generate images (ComfyUI)
+↓
+Generate video clips (Wan)
+↓
+Arrange timeline
+↓
+Export final video
+
+10. Key Rule for AI Coder
+
+DirectorOS must never hardcode model providers.
+
+Instead it should use service connectors:
+
+LLM Connector
+Image Connector
+Video Connector
+Render Connector
+
+
+This allows future integrations.

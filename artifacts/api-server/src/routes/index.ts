@@ -7,6 +7,9 @@ import assetsRouter from "./assets";
 import directorRouter from "./director";
 import generationJobsRouter from "./generation-jobs";
 import generateImageRouter from "./generate-image";
+import generateVideoRouter from "./generate-video";
+import exportRouter from "./export";
+import servicesRouter from "./services";
 
 const router: IRouter = Router();
 
@@ -18,5 +21,8 @@ router.use(assetsRouter);
 router.use(directorRouter);
 router.use(generationJobsRouter);
 router.use(generateImageRouter);
+router.use(generateVideoRouter);
+router.use(exportRouter);
+router.use(servicesRouter);
 
 export default router;

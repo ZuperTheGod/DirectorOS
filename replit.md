@@ -2,7 +2,15 @@
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. DirectorOS is a full AI-native filmmaking platform with 7 modules: Project Browser, AI Director Workspace, Storyboard Timeline, Image Studio, Video Studio, Non-linear Editor, and Audio Studio. Complete end-to-end pipeline from concept → storyboard → image generation → timeline editing → video generation.
+pnpm workspace monorepo using TypeScript. DirectorOS is a frontend orchestration layer for filmmaking that connects to local AI tools via APIs. Complete end-to-end pipeline: User Idea → LM Studio (AI Director) → Storyboard → ComfyUI (Image Generation) → Wan2 (Video Generation) → Timeline → FFmpeg (Export).
+
+## Architecture
+
+DirectorOS never hardcodes model providers. It uses service connectors:
+- **LLM Connector** → LM Studio (OpenAI-compatible API at localhost:1234)
+- **Image Connector** → ComfyUI (REST API at localhost:8188)
+- **Video Connector** → Wan2 via ComfyUI workflows
+- **Render Connector** → FFmpeg for timeline export
 
 ## Stack
 
@@ -16,120 +24,111 @@ pnpm workspace monorepo using TypeScript. DirectorOS is a full AI-native filmmak
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
-- **AI**: OpenAI via Replit AI Integrations — `gpt-5.2` for text, `gpt-image-1` for images
+
+## External AI Services
+
+- **LM Studio** (localhost:1234): Local LLM for AI Director reasoning, scene planning, shot planning, prompt creation, video prompt optimization. OpenAI-compatible `/v1/chat/completions` API with streaming support.
+- **ComfyUI** (localhost:8188): Image generation via Stable Diffusion workflows. Submits workflow JSON to `/prompt`, polls `/history/{id}` for completion, downloads via `/view`.
+- **Wan2**: Video generation from images via ComfyUI workflows. Uses WanVideoSampler node.
+- **FFmpeg** (v6.1.2): Timeline rendering — converts image sequences + audio into final MP4.
 
 ## Design System
 
 - Dark cinematic professional aesthetic — deep blacks, blue-purple accent tones, film production studio feel
 - Font: Inter for body, display font for headings
 - Glass-panel effects, backdrop blur, subtle gradients
-- Sidebar context-aware: shows only Home icon on project browser, expands to all 7 module icons inside a project
+- Sidebar context-aware: shows Home + Settings globally, expands to all 7 module icons inside a project
 
 ## Structure
 
 ```text
 artifacts-monorepo/
 ├── artifacts/
-│   ├── api-server/         # Express API server (routes: projects, scenes, shots, assets, director, generation-jobs, generate-image)
-│   └── director-os/        # React+Vite frontend (root path /)
+│   ├── api-server/
+│   │   └── src/
+│   │       ├── config/
+│   │       │   └── ai-services.ts          # Service URLs and config
+│   │       ├── services/
+│   │       │   ├── director-agent.ts       # AI Director (uses LLM connector)
+│   │       │   └── connectors/
+│   │       │       ├── index.ts            # Central connector registry + health checks
+│   │       │       ├── llm-connector.ts    # LM Studio integration (chat + streaming)
+│   │       │       ├── image-connector.ts  # ComfyUI integration (workflow submission + polling)
+│   │       │       ├── video-connector.ts  # Wan2 integration (video via ComfyUI)
+│   │       │       └── render-connector.ts # FFmpeg integration (timeline export)
+│   │       └── routes/
+│   │           ├── director.ts             # SSE streaming chat + storyboard generation
+│   │           ├── generate-image.ts       # Single + batch image generation via ComfyUI
+│   │           ├── generate-video.ts       # Video generation via Wan2
+│   │           ├── export.ts               # FFmpeg timeline export
+│   │           └── services.ts             # Service health check API
+│   └── director-os/                        # React+Vite frontend (root path /)
 ├── lib/
 │   ├── api-spec/           # OpenAPI spec + Orval codegen config
 │   ├── api-client-react/   # Generated React Query hooks
 │   ├── api-zod/            # Generated Zod schemas from OpenAPI
-│   ├── db/                 # Drizzle ORM schema + DB connection (22 tables)
-│   └── integrations-openai-ai-server/ # OpenAI integration (chat + image generation)
-├── scripts/                # Utility scripts
-├── pnpm-workspace.yaml
-├── tsconfig.base.json
-├── tsconfig.json
-└── package.json
+│   └── db/                 # Drizzle ORM schema + DB connection (22 tables)
 ```
 
 ## Database Tables (22)
 
 User, Project, ProjectProfile, Scene, Shot, StoryboardFrame, Asset, AssetVersion, PromptVersion, GenerationJob, EvaluationResult, ContinuityProfile, CharacterProfile, StyleProfile, VFXPlacement, TimelineSequence, TimelineClip, AudioCue, UserActionEvent, PreferenceSignal, Conversation, Message
 
-DB uses snake_case columns. API schema maps to camelCase — route handlers do this mapping manually:
+DB uses snake_case columns. API schema maps to camelCase:
 - `thumbnailUri` → `thumbnailUrl`
 - `cameraIntentJson` → `cameraIntent`
 - `motionIntentJson` → `motionIntent`
 
-## Frontend Pages (Complete Pipeline)
+## Frontend Pages
 
-- `/` — Project Browser (Home) with project cards, New Project dialog
-- `/projects/:id/director` — AI Director SSE streaming chat with Creative Intent panel
-- `/projects/:id/storyboard` — Storyboard Timeline: editable shot cards, inline edit panel, batch AI image generation with SSE progress, "Accept & Continue to Timeline" button
-- `/projects/:id/image-studio/:shotId` — Shot-specific image generation: pre-populated prompt from shot data, generate/regenerate, accept/retry, variants panel
-- `/projects/:id/editor` — NLE-style timeline: draggable clip durations, transport controls (play/pause/skip), V1 video track + A1 audio track, inspector panel, "Continue to Video Studio"
-- `/projects/:id/video-studio/:shotId` — Per-shot video generation: AI prompt transformer, model selection (Kling/Runway/Pika/MiniMax), camera motion, VFX layer, bottom shot filmstrip
-- `/projects/:id/audio` — Audio Studio with music generation, sound effects, voiceover features
+- `/` — Project Browser with project cards, New Project dialog
+- `/projects/:id/director` — AI Director SSE streaming chat (via LM Studio) with Creative Intent panel
+- `/projects/:id/storyboard` — Storyboard Timeline: editable shot cards, inline edit panel, batch image generation (ComfyUI) with SSE progress
+- `/projects/:id/image-studio/:shotId` — Shot-specific image generation via ComfyUI: pre-populated prompt, generate/regenerate, variants
+- `/projects/:id/editor` — NLE-style timeline: draggable clip durations, transport controls, V1 video + A1 audio tracks
+- `/projects/:id/video-studio/:shotId` — Per-shot video generation via Wan2: AI prompt transformer, camera motion, VFX layer
+- `/projects/:id/audio` — Audio Studio (placeholder)
+- `/settings` — AI Services panel: connection status for all 4 services, test buttons, pipeline architecture diagram
 
 ## API Routes
 
 All mounted under `/api`:
-- `GET/POST /projects`, `GET/PUT/DELETE /projects/:id`
-- `GET/POST /projects/:projectId/scenes`, `PUT/DELETE /scenes/:id`
+- `GET/POST /projects`, `GET/PATCH/DELETE /projects/:projectId`
+- `GET/POST /projects/:projectId/scenes`, `PATCH/DELETE /scenes/:id`
 - `GET/POST /scenes/:sceneId/shots`, `PATCH/DELETE /shots/:id`
 - `POST /projects/:projectId/assets`, `GET /assets/:id`
-- `POST /projects/:projectId/director/chat` — SSE streaming AI chat
-- `POST /projects/:projectId/director/generate-storyboard` — AI storyboard generation
+- `POST /projects/:projectId/director/chat` — SSE streaming AI chat (LM Studio)
+- `POST /projects/:projectId/director/generate-storyboard` — AI storyboard generation (LM Studio)
 - `POST /generation-jobs`, `GET /generation-jobs/:id`
-- `POST /shots/:shotId/generate-image` — Single shot image generation (gpt-image-1)
-- `POST /projects/:projectId/generate-all-images` — SSE batch image generation for all empty shots
-- `POST /shots/:shotId/generate-video-prompt` — AI video prompt transformer
+- `POST /shots/:shotId/generate-image` — Single shot image generation (ComfyUI)
+- `POST /projects/:projectId/generate-all-images` — SSE batch image generation (ComfyUI)
+- `POST /shots/:shotId/generate-video-prompt` — AI video prompt transformer (LM Studio)
+- `POST /shots/:shotId/generate-video` — Video generation from image (Wan2 via ComfyUI)
+- `POST /projects/:projectId/export` — FFmpeg timeline render to MP4
+- `GET /services/status` — All service health checks
+- `POST /services/test/:serviceName` — Test individual service connection
 
-## Image Generation Pipeline
+## Environment Variables
+
+- `LMSTUDIO_URL` — LM Studio endpoint (default: `http://localhost:1234`)
+- `LMSTUDIO_MODEL` — LM Studio model name (default: `local-model`)
+- `COMFYUI_URL` — ComfyUI endpoint (default: `http://localhost:8188`)
+
+## Image/Video Pipeline
 
 - Images stored at: `artifacts/director-os/public/generated/shot_{id}_{timestamp}.png`
-- Served as: `/generated/filename` (via Vite public dir)
+- Videos stored at: `artifacts/director-os/public/generated/video_{id}_{timestamp}.webp`
+- Exports stored at: `artifacts/director-os/public/exports/{project_name}_{timestamp}.mp4`
 - Shot status progression: `empty` → `has_frame` → `has_video` → `approved`
-- `buildImagePrompt()` in `director-agent.ts` transforms shot metadata into optimized image prompts
-
-## AI Integration
-
-- OpenAI via `@workspace/integrations-openai-ai-server` (Replit AI Integrations proxy — no API key needed)
-- `gpt-5.2` for chat/text (no `temperature` or `max_tokens` params for gpt-5+)
-- `gpt-image-1` for image generation via `generateImageBuffer()`
-- Director Agent: system prompts for filmmaking, JSON structured output with `{message, structuredIntent, suggestions, reasoning}`
 
 ## TypeScript & Composite Projects
 
-Every package extends `tsconfig.base.json` which sets `composite: true`. The root `tsconfig.json` lists all packages as project references.
-
-- **Always typecheck from the root** — run `pnpm run typecheck`
-- **`emitDeclarationOnly`** — only emit `.d.ts` files during typecheck; actual JS bundling handled by esbuild/tsx/vite
-- **Project references** — when package A depends on package B, A's `tsconfig.json` must list B in its `references` array
-
-## Root Scripts
-
-- `pnpm run build` — runs `typecheck` first, then recursively runs `build` in all packages
-- `pnpm run typecheck` — runs `tsc --build --emitDeclarationOnly`
-
-## Key Packages
-
-### `artifacts/api-server` (`@workspace/api-server`)
-Express 5 API server. Routes in `src/routes/`. Uses `@workspace/api-zod` for validation and `@workspace/db` for persistence.
-- `pnpm --filter @workspace/api-server run dev` — dev server
-- `pnpm --filter @workspace/api-server run build` — production bundle
-
-### `artifacts/director-os` (`@workspace/director-os`)
-React+Vite frontend at root path `/`. Uses wouter for routing, React Query for data fetching (generated hooks from Orval), Framer Motion for animations.
-- `pnpm --filter @workspace/director-os run dev` — dev server
-
-### `lib/db` (`@workspace/db`)
-Drizzle ORM with PostgreSQL. 22 tables covering all filmmaking entities.
-- `pnpm --filter @workspace/db run push` — push schema to DB
-- Schema files in `src/schema/`
-
-### `lib/api-spec` (`@workspace/api-spec`)
-OpenAPI 3.1 spec (`openapi.yaml`) + Orval codegen config.
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate hooks and schemas
-
-### `lib/api-zod` / `lib/api-client-react`
-Generated code from OpenAPI spec. Do not edit directly.
+Every package extends `tsconfig.base.json` with `composite: true`. The root `tsconfig.json` lists all packages as project references.
 
 ## Build Status
 
-- Task #1 (Foundation): COMPLETE — all DB tables, API routes, frontend pages
-- Task #2 (AI Director + LLM): COMPLETE — SSE streaming chat, AI storyboard generation
-- Pipeline UX: COMPLETE — Storyboard (editable shots + batch image gen), Image Studio (shot-specific generation), Timeline Editor (NLE-style clips + transport), Video Studio (AI video prompt + model selection)
+- Foundation: COMPLETE — 22 DB tables, all API routes, 8 frontend pages
+- AI Director: COMPLETE — SSE streaming chat via LM Studio connector, AI storyboard generation
+- Pipeline UX: COMPLETE — Storyboard, Image Studio, Timeline Editor, Video Studio
+- External Integrations: COMPLETE — LM Studio, ComfyUI, Wan2, FFmpeg connectors with service health checks
+- Settings UI: COMPLETE — AI Services panel with connection status and test buttons

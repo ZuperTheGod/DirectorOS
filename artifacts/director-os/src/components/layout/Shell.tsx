@@ -10,7 +10,8 @@ import {
   AudioWaveform,
   Home,
   Menu,
-  Brain
+  Brain,
+  Settings
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useGetProject } from "@workspace/api-client-react";
@@ -37,7 +38,8 @@ export function Shell({ children }: ShellProps) {
       { href: `/projects/${projectId}/video-studio`, icon: Video, label: "Video Studio", exact: false },
       { href: `/projects/${projectId}/editor`, icon: Scissors, label: "Editor", exact: false },
       { href: `/projects/${projectId}/audio`, icon: AudioWaveform, label: "Audio Studio", exact: false },
-    ] : [])
+    ] : []),
+    { href: "/settings", icon: Settings, label: "AI Services", exact: true },
   ];
 
   const currentNavItem = navItems.find(item => 

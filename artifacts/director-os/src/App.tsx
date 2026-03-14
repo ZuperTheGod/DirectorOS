@@ -12,6 +12,7 @@ import ImageStudio from "@/pages/ImageStudio";
 import VideoStudio from "@/pages/VideoStudio";
 import Editor from "@/pages/Editor";
 import AudioStudio from "@/pages/Audio";
+import Settings from "@/pages/Settings";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -31,6 +32,7 @@ function Router() {
         <Route path="/projects/:id/video-studio" component={VideoStudio} />
         <Route path="/projects/:id/editor" component={Editor} />
         <Route path="/projects/:id/audio" component={AudioStudio} />
+        <Route path="/settings" component={Settings} />
         
         {/* Fallback to Home for bare project route */}
         <Route path="/projects/:id">

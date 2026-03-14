@@ -1,4 +1,5 @@
-import { openai } from "@workspace/integrations-openai-ai-server";
+import { chatCompletion, streamChatCompletion } from "./connectors/llm-connector";
+import type { LLMMessage } from "./connectors/llm-connector";
 
 const DIRECTOR_SYSTEM_PROMPT = `You are the AI Director — a world-class creative collaborator for filmmaking. You think like a seasoned film director combined with a visual artist and cinematographer.
 
@@ -97,7 +98,7 @@ export async function* streamDirectorChat(
   userMessage: string,
   conversationHistory: ConversationMessage[]
 ): AsyncGenerator<string> {
-  const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+  const messages: LLMMessage[] = [
     { role: "system", content: DIRECTOR_SYSTEM_PROMPT },
     {
       role: "system",
@@ -110,19 +111,7 @@ export async function* streamDirectorChat(
     { role: "user", content: userMessage }
   ];
 
-  const stream = await openai.chat.completions.create({
-    model: "gpt-5.2",
-    max_completion_tokens: 8192,
-    messages,
-    stream: true,
-  });
-
-  for await (const chunk of stream) {
-    const content = chunk.choices[0]?.delta?.content;
-    if (content) {
-      yield content;
-    }
-  }
+  yield* streamChatCompletion({ messages, temperature: 0.7 });
 }
 
 export async function generateStoryboardWithAI(
@@ -143,9 +132,7 @@ export async function generateStoryboardWithAI(
   }>;
   directorNotes: string;
 }> {
-  const response = await openai.chat.completions.create({
-    model: "gpt-5.2",
-    max_completion_tokens: 8192,
+  const content = await chatCompletion({
     messages: [
       { role: "system", content: STORYBOARD_SYSTEM_PROMPT },
       {
@@ -153,13 +140,11 @@ export async function generateStoryboardWithAI(
         content: `Project: "${projectName}"\nConcept: ${concept}\nTarget duration: ${targetDurationSeconds} seconds\n\nGenerate a complete storyboard breakdown. Aim for ${Math.max(2, Math.ceil(targetDurationSeconds / 15))} scenes.`
       }
     ],
+    temperature: 0.7,
     response_format: { type: "json_object" },
   });
 
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error("No response from AI Director");
-  }
+  if (!content) throw new Error("No response from AI Director");
 
   return JSON.parse(content);
 }

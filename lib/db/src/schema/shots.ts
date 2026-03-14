@@ -14,6 +14,7 @@ export const shotsTable = pgTable("shots", {
   motionIntentJson: jsonb("motion_intent_json"),
   status: text("status").notNull().default("empty"),
   thumbnailUri: text("thumbnail_uri"),
+  videoUri: text("video_uri"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
