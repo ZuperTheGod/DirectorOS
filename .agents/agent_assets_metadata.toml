@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "s8id5EjbNQemCSTU_GlLe"
+uri = "file://LOCAL_SETUP.md"
+type = "text"
+title = "DirectorOS Local Setup Guide"
