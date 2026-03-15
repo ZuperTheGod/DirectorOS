@@ -6,3 +6,9 @@ id = "s8id5EjbNQemCSTU_GlLe"
 uri = "file://LOCAL_SETUP.md"
 type = "text"
 title = "DirectorOS Local Setup Guide"
+
+[[outputs]]
+id = "j_r8jthocDGvS12ovBRMs"
+uri = "file://WINDOWS_SETUP_AGENT_GUIDE.md"
+type = "text"
+title = "Windows Setup Guide (for Gemini Agent)"
