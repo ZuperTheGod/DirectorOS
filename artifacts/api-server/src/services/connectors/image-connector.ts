@@ -1,4 +1,4 @@
-import config from "../../config/ai-services";
+import { getConfig } from "../../config/ai-services";
 
 export interface ComfyWorkflow {
   prompt: Record<string, any>;
@@ -85,6 +85,7 @@ function buildTextToImageWorkflow(params: ImageGenerationParams): ComfyWorkflow 
 }
 
 export async function submitWorkflow(workflow: ComfyWorkflow): Promise<{ prompt_id: string }> {
+  const config = await getConfig();
   const { url } = config.comfyui;
 
   const response = await fetch(`${url}/prompt`, {
@@ -102,6 +103,7 @@ export async function submitWorkflow(workflow: ComfyWorkflow): Promise<{ prompt_
 }
 
 export async function pollForCompletion(promptId: string, timeoutMs: number = 300000): Promise<string[]> {
+  const config = await getConfig();
   const { url } = config.comfyui;
   const startTime = Date.now();
 
@@ -139,6 +141,7 @@ export async function pollForCompletion(promptId: string, timeoutMs: number = 30
 }
 
 export async function downloadImage(filename: string): Promise<Buffer> {
+  const config = await getConfig();
   const { url } = config.comfyui;
   const response = await fetch(`${url}/view?filename=${encodeURIComponent(filename)}`);
 
@@ -160,6 +163,7 @@ export async function generateImage(params: ImageGenerationParams): Promise<Buff
 
 export async function checkConnection(): Promise<{ connected: boolean; error?: string }> {
   try {
+    const config = await getConfig();
     const { url } = config.comfyui;
     const response = await fetch(`${url}/system_stats`, { signal: AbortSignal.timeout(5000) });
     if (!response.ok) return { connected: false, error: `Status ${response.status}` };

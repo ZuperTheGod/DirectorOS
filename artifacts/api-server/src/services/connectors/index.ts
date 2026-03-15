@@ -36,7 +36,7 @@ export async function checkAllServices(): Promise<ServiceStatus[]> {
       error: comfyResult.error,
     },
     {
-      name: "Wan2 Video",
+      name: "Wan2GP",
       connected: wanResult.connected,
       error: wanResult.error,
     },

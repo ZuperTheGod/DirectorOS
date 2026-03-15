@@ -2,6 +2,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs";
 import * as path from "path";
+import { getConfig } from "../../config/ai-services";
 
 const execFileAsync = promisify(execFile);
 
@@ -22,6 +23,8 @@ export interface RenderOptions {
 
 export async function renderTimeline(options: RenderOptions): Promise<string> {
   const { clips, outputPath, fps = 24, width = 1920, height = 1080, audioPath } = options;
+  const config = await getConfig();
+  const ffmpegBin = config.ffmpeg.path;
 
   if (clips.length === 0) throw new Error("No clips to render");
 
@@ -40,7 +43,7 @@ export async function renderTimeline(options: RenderOptions): Promise<string> {
       const durationSec = (clip.durationMs / 1000).toFixed(3);
       const scaleFilter = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`;
 
-      await execFileAsync("ffmpeg", [
+      await execFileAsync(ffmpegBin, [
         "-y", "-loop", "1",
         "-i", resolvedPath,
         "-c:v", "libx264",
@@ -74,7 +77,7 @@ export async function renderTimeline(options: RenderOptions): Promise<string> {
 
   concatArgs.push(outputPath);
 
-  await execFileAsync("ffmpeg", concatArgs);
+  await execFileAsync(ffmpegBin, concatArgs);
 
   try {
     fs.rmSync(tempDir, { recursive: true });
@@ -85,7 +88,8 @@ export async function renderTimeline(options: RenderOptions): Promise<string> {
 
 export async function checkConnection(): Promise<{ connected: boolean; version?: string; error?: string }> {
   try {
-    const { stdout } = await execFileAsync("ffmpeg", ["-version"]);
+    const config = await getConfig();
+    const { stdout } = await execFileAsync(config.ffmpeg.path, ["-version"]);
     const versionMatch = stdout.match(/ffmpeg version (\S+)/);
     return { connected: true, version: versionMatch?.[1] || "unknown" };
   } catch (err: any) {

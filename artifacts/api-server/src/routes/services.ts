@@ -1,16 +1,19 @@
 import { Router, type IRouter } from "express";
 import { checkAllServices } from "../services/connectors";
-import config from "../config/ai-services";
+import { getConfig } from "../config/ai-services";
 
 const router: IRouter = Router();
 
 router.get("/services/status", async (_req, res): Promise<void> => {
   const statuses = await checkAllServices();
+  const config = await getConfig();
   res.json({
     services: statuses,
     config: {
       lmstudio: { url: config.lmstudio.url, model: config.lmstudio.model },
       comfyui: { url: config.comfyui.url },
+      wan2gp: { url: config.wan2gp.url },
+      ffmpeg: { path: config.ffmpeg.path },
     },
   });
 });

@@ -1,4 +1,4 @@
-import config from "../../config/ai-services";
+import { getConfig } from "../../config/ai-services";
 
 export interface LLMMessage {
   role: "system" | "user" | "assistant";
@@ -14,6 +14,7 @@ export interface LLMCompletionOptions {
 }
 
 export async function chatCompletion(options: LLMCompletionOptions): Promise<string> {
+  const config = await getConfig();
   const { url, model } = config.lmstudio;
 
   const response = await fetch(`${url}/v1/chat/completions`, {
@@ -39,6 +40,7 @@ export async function chatCompletion(options: LLMCompletionOptions): Promise<str
 }
 
 export async function* streamChatCompletion(options: LLMCompletionOptions): AsyncGenerator<string> {
+  const config = await getConfig();
   const { url, model } = config.lmstudio;
 
   const response = await fetch(`${url}/v1/chat/completions`, {
@@ -89,6 +91,7 @@ export async function* streamChatCompletion(options: LLMCompletionOptions): Asyn
 
 export async function checkConnection(): Promise<{ connected: boolean; models?: string[]; error?: string }> {
   try {
+    const config = await getConfig();
     const { url } = config.lmstudio;
     const response = await fetch(`${url}/v1/models`, { signal: AbortSignal.timeout(5000) });
     if (!response.ok) return { connected: false, error: `Status ${response.status}` };

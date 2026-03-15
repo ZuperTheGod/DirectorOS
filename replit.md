@@ -6,10 +6,10 @@ pnpm workspace monorepo using TypeScript. DirectorOS is a frontend orchestration
 
 ## Architecture
 
-DirectorOS never hardcodes model providers. It uses service connectors:
+DirectorOS never hardcodes model providers. It uses service connectors with dynamic config (persisted in DB `settings` table, fallback to env vars):
 - **LLM Connector** → LM Studio (OpenAI-compatible API at localhost:1234)
 - **Image Connector** → ComfyUI (REST API at localhost:8188)
-- **Video Connector** → Wan2 via ComfyUI workflows
+- **Video Connector** → Wan2GP (Gradio API at localhost:7860, github.com/deepbeepmeep/Wan2GP)
 - **Render Connector** → FFmpeg for timeline export
 
 ## Stack
@@ -29,7 +29,7 @@ DirectorOS never hardcodes model providers. It uses service connectors:
 
 - **LM Studio** (localhost:1234): Local LLM for AI Director reasoning, scene planning, shot planning, prompt creation, video prompt optimization. OpenAI-compatible `/v1/chat/completions` API with streaming support.
 - **ComfyUI** (localhost:8188): Image generation via Stable Diffusion workflows. Submits workflow JSON to `/prompt`, polls `/history/{id}` for completion, downloads via `/view`.
-- **Wan2**: Video generation from images via ComfyUI workflows. Uses WanVideoSampler node.
+- **Wan2GP** (localhost:7860): Video generation from images via Gradio API (github.com/deepbeepmeep/Wan2GP). Uploads source image, submits generation via queue/join, polls SSE for completion, downloads result video.
 - **FFmpeg** (v6.1.2): Timeline rendering — converts image sequences + audio into final MP4.
 
 ## Design System
@@ -54,7 +54,7 @@ artifacts-monorepo/
 │   │       │   │   ├── index.ts            # Central connector registry + health checks
 │   │       │   │   ├── llm-connector.ts    # LM Studio integration (chat + streaming)
 │   │       │   │   ├── image-connector.ts  # ComfyUI integration (workflow submission + polling)
-│   │       │   │   ├── video-connector.ts  # Wan2 integration (video via ComfyUI)
+│   │       │   │   ├── video-connector.ts  # Wan2GP integration (video via Gradio API)
 │   │       │   │   └── render-connector.ts # FFmpeg integration (timeline export)
 │   │       │   ├── job-queue/
 │   │       │   │   ├── queue.ts            # enqueueJob, enqueueImageJob, enqueueVideoJob, enqueueRenderJob
@@ -72,7 +72,8 @@ artifacts-monorepo/
 │   │           ├── export.ts               # Queues render job (via job queue)
 │   │           ├── clips.ts               # Clip library CRUD + sync from assets
 │   │           ├── generation-jobs.ts      # Job listing, status polling
-│   │           └── services.ts             # Service health check API
+│   │           ├── services.ts             # Service health check API
+│   │           └── settings.ts            # Settings CRUD (persisted in DB)
 │   └── director-os/                        # React+Vite frontend (root path /)
 ├── lib/
 │   ├── api-spec/           # OpenAPI spec + Orval codegen config
@@ -81,9 +82,9 @@ artifacts-monorepo/
 │   └── db/                 # Drizzle ORM schema + DB connection (22 tables)
 ```
 
-## Database Tables (23)
+## Database Tables (24)
 
-User, Project, ProjectProfile, Scene, Shot, StoryboardFrame, Asset, AssetVersion, PromptVersion, GenerationJob, EvaluationResult, ContinuityProfile, CharacterProfile, StyleProfile, VFXPlacement, TimelineSequence, TimelineClip, AudioCue, UserActionEvent, PreferenceSignal, Conversation, Message, Clip
+User, Project, ProjectProfile, Scene, Shot, StoryboardFrame, Asset, AssetVersion, PromptVersion, GenerationJob, EvaluationResult, ContinuityProfile, CharacterProfile, StyleProfile, VFXPlacement, TimelineSequence, TimelineClip, AudioCue, UserActionEvent, PreferenceSignal, Conversation, Message, Clip, Setting
 
 DB uses snake_case columns. API schema maps to camelCase:
 - `thumbnailUri` → `thumbnailUrl`
@@ -99,7 +100,7 @@ DB uses snake_case columns. API schema maps to camelCase:
 - `/projects/:id/editor` — NLE-style timeline: draggable clip durations, transport controls, V1 video + A1 audio tracks, Clip Library sidebar with asset browser
 - `/projects/:id/video-studio/:shotId` — Per-shot video generation via Wan2: AI prompt transformer, camera motion, VFX layer
 - `/projects/:id/audio` — Audio Studio (placeholder)
-- `/settings` — AI Services panel: connection status for all 4 services, test buttons, pipeline architecture diagram
+- `/settings` — AI Services panel: editable config fields (URLs, model names, paths) with save to DB, connection status, test buttons, pipeline diagram, setup guide
 
 ## API Routes
 
@@ -124,12 +125,17 @@ All mounted under `/api`:
 - `DELETE /clips/:clipId` — Delete clip
 - `GET /services/status` — All service health checks
 - `POST /services/test/:serviceName` — Test individual service connection
+- `GET /settings` — Get all service settings
+- `PUT /settings` — Save service settings (persisted in DB)
 
 ## Environment Variables
 
 - `LMSTUDIO_URL` — LM Studio endpoint (default: `http://localhost:1234`)
-- `LMSTUDIO_MODEL` — LM Studio model name (default: `local-model`)
+- `LMSTUDIO_MODEL` — LM Studio model name
 - `COMFYUI_URL` — ComfyUI endpoint (default: `http://localhost:8188`)
+- `WAN2GP_URL` — Wan2GP endpoint (default: `http://localhost:7860`)
+- `FFMPEG_PATH` — FFmpeg binary path (default: `ffmpeg`)
+- All settings can be overridden via the Settings UI (stored in DB `settings` table)
 
 ## Image/Video Pipeline
 
@@ -172,7 +178,7 @@ Reusable asset library that bridges generated assets and the timeline:
 - AI Director: COMPLETE — SSE streaming chat via LM Studio connector, AI storyboard generation
 - Pipeline UX: COMPLETE — Storyboard, Image Studio, Timeline Editor (with Clip Library), Video Studio
 - External Integrations: COMPLETE — LM Studio, ComfyUI, Wan2, FFmpeg connectors with service health checks
-- Settings UI: COMPLETE — AI Services panel with connection status and test buttons
+- Settings UI: COMPLETE — AI Services panel with editable config fields, DB persistence, connection status, test buttons, setup guide
 - Job Queue: COMPLETE — Background worker, retry logic, all routes queue instead of direct calls
 - AI Evaluation: COMPLETE — Quality scoring via LLM, auto-regeneration below threshold
 - Clip Library: COMPLETE — Asset-to-clip sync, categorized browser in Editor sidebar

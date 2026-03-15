@@ -171,7 +171,7 @@ async function processVideoJob(jobId: number, payload: VideoJobPayload) {
     throw new Error("Source image file not found on disk");
   }
 
-  const buffer = await generateVideo({ imageFilename: imageFilePath, prompt, frames, motionStrength, seed });
+  const buffer = await generateVideo({ imageFilePath, prompt, frames, motionStrength, seed });
 
   ensureDir(ASSETS_DIR);
   const filename = `video_${shotId}_${Date.now()}.webp`;
