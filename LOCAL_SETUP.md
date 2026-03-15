@@ -11,10 +11,9 @@ Run DirectorOS on your local machine to connect directly to LM Studio, ComfyUI, 
 
 ## 1. Clone & Install
 
-Download the project from Replit (three-dot menu → "Download as zip"), unzip it, then:
-
 ```bash
-cd directoros
+git clone https://github.com/ZuperTheGod/DirectorOS.git
+cd DirectorOS
 pnpm install
 ```
 
