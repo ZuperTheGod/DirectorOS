@@ -14,6 +14,7 @@ import Editor from "@/pages/Editor";
 import AudioStudio from "@/pages/Audio";
 import Settings from "@/pages/Settings";
 import NotFound from "@/pages/not-found";
+import JobStatusPanel from "@/components/JobStatusPanel";
 
 const queryClient = new QueryClient();
 
@@ -57,6 +58,7 @@ function App() {
           <Router />
         </WouterRouter>
         <Toaster />
+        <JobStatusPanel />
       </TooltipProvider>
     </QueryClientProvider>
   );

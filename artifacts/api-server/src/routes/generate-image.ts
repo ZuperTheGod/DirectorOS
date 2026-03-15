@@ -3,26 +3,14 @@ import { eq } from "drizzle-orm";
 import {
   db,
   shotsTable,
-  assetsTable,
-  storyboardFramesTable,
-  generationJobsTable,
   scenesTable,
+  generationJobsTable,
 } from "@workspace/db";
-import { generateImage } from "../services/connectors/image-connector";
-import { chatCompletion } from "../services/connectors/llm-connector";
 import { buildImagePrompt } from "../services/director-agent";
-import * as fs from "fs";
-import * as path from "path";
+import { enqueueImageJob } from "../services/job-queue/queue";
+import { chatCompletion } from "../services/connectors/llm-connector";
 
 const router: IRouter = Router();
-
-const ASSETS_DIR = path.join(process.cwd(), "..", "director-os", "public", "generated");
-
-function ensureAssetsDir() {
-  if (!fs.existsSync(ASSETS_DIR)) {
-    fs.mkdirSync(ASSETS_DIR, { recursive: true });
-  }
-}
 
 router.post("/shots/:shotId/generate-image", async (req, res): Promise<void> => {
   const shotId = parseInt(req.params.shotId);
@@ -48,79 +36,25 @@ router.post("/shots/:shotId/generate-image", async (req, res): Promise<void> => 
 
   try {
     const [scene] = await db.select().from(scenesTable).where(eq(scenesTable.id, shot.sceneId));
-    const projectId = scene?.projectId;
+    const projectId = scene?.projectId || 0;
 
-    const [job] = await db.insert(generationJobsTable).values({
-      projectId: projectId || 0,
-      jobType: "image",
-      provider: "comfyui",
-      requestJson: { prompt, negativePrompt, shotId },
-      status: "processing",
-    }).returning();
-
-    const buffer = await generateImage({
+    const job = await enqueueImageJob({
+      shotId,
+      projectId,
       prompt,
-      negativePrompt: negativePrompt || undefined,
+      negativePrompt,
       width: 1024,
       height: 1024,
-    });
-
-    ensureAssetsDir();
-    const filename = `shot_${shotId}_${Date.now()}.png`;
-    const filepath = path.join(ASSETS_DIR, filename);
-    fs.writeFileSync(filepath, buffer);
-
-    const imageUrl = `/generated/${filename}`;
-
-    const [asset] = await db.insert(assetsTable).values({
-      projectId: projectId || 0,
-      assetType: "image",
-      storageUri: imageUrl,
-      thumbnailUri: imageUrl,
-      width: 1024,
-      height: 1024,
-      metadataJson: { prompt, negativePrompt, shotId, generationJobId: job.id, provider: "comfyui" },
-    }).returning();
-
-    await db.insert(storyboardFramesTable).values({
-      shotId: shot.id,
-      assetId: asset.id,
-    });
-
-    await db.update(shotsTable).set({
-      thumbnailUri: imageUrl,
-      status: "has_frame",
-    }).where(eq(shotsTable.id, shotId));
-
-    await db.update(generationJobsTable).set({
-      status: "completed",
-      completedAt: new Date(),
-    }).where(eq(generationJobsTable.id, job.id));
+    }, { maxRetries: 2 });
 
     res.json({
       success: true,
-      imageUrl,
-      assetId: asset.id,
-      shotId: shot.id,
+      jobId: job.id,
+      status: "queued",
+      message: "Image generation job queued",
     });
   } catch (err: any) {
-    console.error("Image generation error:", err);
-
-    try {
-      const jobs = await db.select().from(generationJobsTable)
-        .where(eq(generationJobsTable.status, "processing"));
-      for (const j of jobs) {
-        const req = j.requestJson as any;
-        if (req?.shotId === shotId) {
-          await db.update(generationJobsTable).set({
-            status: "failed",
-            completedAt: new Date(),
-          }).where(eq(generationJobsTable.id, j.id));
-        }
-      }
-    } catch {}
-
-    res.status(500).json({ error: err.message || "Image generation failed" });
+    res.status(500).json({ error: err.message || "Failed to queue image generation" });
   }
 });
 
@@ -130,10 +64,6 @@ router.post("/projects/:projectId/generate-all-images", async (req, res): Promis
     res.status(400).json({ error: "Invalid project ID" });
     return;
   }
-
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
 
   try {
     const scenes = await db.select().from(scenesTable)
@@ -149,80 +79,34 @@ router.post("/projects/:projectId/generate-all-images", async (req, res): Promis
     }
 
     const shotsToGenerate = allShots.filter(s => s.status === "empty" || !s.thumbnailUri);
-    const total = shotsToGenerate.length;
+    const jobIds: number[] = [];
 
-    res.write(`data: ${JSON.stringify({ type: "start", total, message: `Generating ${total} images...` })}\n\n`);
-
-    for (let i = 0; i < shotsToGenerate.length; i++) {
-      const shot = shotsToGenerate[i];
+    for (const shot of shotsToGenerate) {
       const prompt = buildImagePrompt({
         promptSummary: shot.promptSummary || "A cinematic shot",
         shotType: shot.shotType || "medium",
         cameraIntent: shot.cameraIntentJson as Record<string, string> | null,
       });
 
-      res.write(`data: ${JSON.stringify({
-        type: "progress",
-        current: i + 1,
-        total,
+      const job = await enqueueImageJob({
         shotId: shot.id,
-        message: `Generating image ${i + 1}/${total}...`,
-      })}\n\n`);
+        projectId,
+        prompt,
+        width: 1024,
+        height: 1024,
+      }, { maxRetries: 2 });
 
-      try {
-        const buffer = await generateImage({
-          prompt,
-          width: 1024,
-          height: 1024,
-        });
-
-        ensureAssetsDir();
-        const filename = `shot_${shot.id}_${Date.now()}.png`;
-        const filepath = path.join(ASSETS_DIR, filename);
-        fs.writeFileSync(filepath, buffer);
-        const imageUrl = `/generated/${filename}`;
-
-        const [asset] = await db.insert(assetsTable).values({
-          projectId,
-          assetType: "image",
-          storageUri: imageUrl,
-          thumbnailUri: imageUrl,
-          width: 1024,
-          height: 1024,
-          metadataJson: { prompt, shotId: shot.id, provider: "comfyui" },
-        }).returning();
-
-        await db.insert(storyboardFramesTable).values({
-          shotId: shot.id,
-          assetId: asset.id,
-        });
-
-        await db.update(shotsTable).set({
-          thumbnailUri: imageUrl,
-          status: "has_frame",
-        }).where(eq(shotsTable.id, shot.id));
-
-        res.write(`data: ${JSON.stringify({
-          type: "completed",
-          current: i + 1,
-          total,
-          shotId: shot.id,
-          imageUrl,
-        })}\n\n`);
-      } catch (err: any) {
-        res.write(`data: ${JSON.stringify({
-          type: "error",
-          shotId: shot.id,
-          message: err.message,
-        })}\n\n`);
-      }
+      jobIds.push(job.id);
     }
 
-    res.write(`data: ${JSON.stringify({ type: "done", message: "All images generated!" })}\n\n`);
-    res.end();
+    res.json({
+      success: true,
+      totalQueued: jobIds.length,
+      jobIds,
+      message: `${jobIds.length} image generation jobs queued`,
+    });
   } catch (err: any) {
-    res.write(`data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`);
-    res.end();
+    res.status(500).json({ error: err.message || "Failed to queue batch image generation" });
   }
 });
 

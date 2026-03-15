@@ -10,6 +10,7 @@ import generateImageRouter from "./generate-image";
 import generateVideoRouter from "./generate-video";
 import exportRouter from "./export";
 import servicesRouter from "./services";
+import clipsRouter from "./clips";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(generateImageRouter);
 router.use(generateVideoRouter);
 router.use(exportRouter);
 router.use(servicesRouter);
+router.use(clipsRouter);
 
 export default router;

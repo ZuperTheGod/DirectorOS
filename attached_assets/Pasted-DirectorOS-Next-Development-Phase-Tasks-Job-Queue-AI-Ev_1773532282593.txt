@@ -1,0 +1,334 @@
+DirectorOS Next Development Phase
+Tasks: Job Queue + AI Evaluation + Clip Library
+
+Goal: upgrade DirectorOS into a reliable AI video production pipeline capable of batch generation, quality scoring, and reusable assets.
+
+TASK 1 — Generation Job Queue System
+Purpose
+
+Currently generation tasks run synchronously through API routes. This can block the server and does not scale.
+
+Implement an asynchronous job queue so that image/video generation runs as background workers.
+
+Architecture
+User Action
+↓
+API Route
+↓
+Create Generation Job
+↓
+Queue Worker
+↓
+Run AI Connector
+↓
+Update Job Status
+↓
+Notify UI
+Database Schema
+
+Create table:
+
+generation_jobs
+
+Fields:
+
+id
+project_id
+shot_id
+type (image | video | render)
+status (pending | processing | completed | failed)
+input_data JSON
+output_asset_id
+error_message
+created_at
+updated_at
+Backend Modules
+
+Create:
+
+services/job-queue/
+
+Files:
+
+queue.ts
+worker.ts
+job-types.ts
+queue.ts
+
+Responsible for adding jobs.
+
+Example:
+
+export async function enqueueJob(jobType, payload) {
+  return db.insert(generationJobs).values({
+    type: jobType,
+    status: "pending",
+    inputData: payload
+  });
+}
+worker.ts
+
+Runs background job processing loop.
+
+Responsibilities:
+
+poll pending jobs
+mark job processing
+run connector
+store result
+update job status
+
+Pseudo:
+
+while(true) {
+  const job = await getNextPendingJob();
+
+  if(job) {
+    processJob(job);
+  }
+
+  sleep(2000);
+}
+Supported Job Types
+IMAGE_GENERATION
+VIDEO_GENERATION
+TIMELINE_RENDER
+API Changes
+
+Instead of directly generating assets, these routes should now enqueue jobs:
+
+POST /shots/:id/generate-image
+POST /shots/:id/generate-video
+POST /projects/:id/export
+
+Response:
+
+{
+  "jobId": "...",
+  "status": "queued"
+}
+TASK 2 — AI Evaluation System
+Purpose
+
+Automatically evaluate generated images/videos and decide whether they should be accepted or regenerated.
+
+Evaluation Flow
+Generate Asset
+↓
+Evaluation Model
+↓
+Score Output
+↓
+Accept OR Regenerate
+Database Table
+
+Create:
+
+evaluation_results
+
+Fields:
+
+id
+asset_id
+prompt
+prompt_match_score
+composition_score
+visual_quality_score
+overall_score
+notes
+created_at
+Evaluation Module
+
+Create:
+
+services/evaluation/evaluator.ts
+evaluateImage()
+
+Use LM Studio vision-capable models.
+
+Input:
+
+prompt
+generated image
+
+Return:
+
+prompt match score
+composition score
+quality score
+
+Example response:
+
+{
+ "promptMatch": 82,
+ "composition": 76,
+ "quality": 85,
+ "overall": 81
+}
+Decision Logic
+
+If:
+
+overall_score < 70
+
+then:
+
+regenerate asset
+
+Otherwise:
+
+mark asset approved
+Integration
+
+Evaluation runs automatically after:
+
+image generation
+video generation
+
+Pipeline:
+
+Generate
+↓
+Evaluate
+↓
+Accept OR Retry
+TASK 3 — Clip Library System
+Purpose
+
+Clips should be reusable across the project and appear in a centralized asset library.
+
+Database Table
+
+Create:
+
+clips
+
+Fields:
+
+id
+project_id
+shot_id
+asset_id
+clip_type (image | video | audio)
+duration
+created_at
+Clip Library Module
+
+Create:
+
+services/clips/
+
+Files:
+
+clip-manager.ts
+clip-loader.ts
+clip-manager.ts
+
+Handles:
+
+createClip()
+deleteClip()
+listProjectClips()
+clip-loader.ts
+
+Loads clips into timeline.
+
+Functions:
+
+addClipToTimeline()
+removeClipFromTimeline()
+moveClip()
+UI Changes
+
+Add Clip Library Panel to Timeline Editor.
+
+Layout:
+
+Left Sidebar
+
+Clips
+Images
+Videos
+Audio
+
+Users should be able to:
+
+drag clips
+drop onto timeline
+reuse assets
+Timeline Editor Updates
+
+Update editor to support:
+
+clip references instead of direct shot linking
+
+New timeline structure:
+
+Timeline
+ └ Track
+     └ Clip
+TASK 4 — UI Job Status Panel
+
+Add job status UI to show generation progress.
+
+Panel location:
+
+Bottom dock
+
+Example:
+
+AI Jobs
+
+Image Generation — Shot 3 — Processing
+Video Generation — Shot 4 — Pending
+Render — Timeline — Completed
+
+Polling endpoint:
+
+GET /api/generation-jobs
+Final System Architecture
+
+After these tasks, DirectorOS pipeline becomes:
+
+User Idea
+↓
+LM Studio (AI Director)
+↓
+Storyboard
+↓
+Queue Job
+↓
+ComfyUI Image Generation
+↓
+Evaluation System
+↓
+Wan2 Video Generation
+↓
+Clip Library
+↓
+Timeline Editor
+↓
+FFmpeg Render
+Implementation Order
+
+AI coder should implement in this order:
+
+1️⃣ Job Queue
+2️⃣ Clip Library
+3️⃣ Evaluation System
+4️⃣ Timeline Integration
+
+Success Criteria
+
+DirectorOS should support:
+
+Batch image generation
+Batch video generation
+Automatic quality scoring
+Reusable clip assets
+Background job processing
+Important Design Rule
+
+All AI processing must go through the job queue.
+
+Never call connectors directly from API routes.

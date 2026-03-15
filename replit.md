@@ -20,7 +20,7 @@ DirectorOS never hardcodes model providers. It uses service connectors:
 - **TypeScript version**: 5.9
 - **Frontend**: React + Vite + wouter + React Query + Framer Motion + Tailwind CSS + shadcn/ui
 - **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM (22 tables including conversations + messages)
+- **Database**: PostgreSQL + Drizzle ORM (23 tables including clips, generation jobs, evaluation results)
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
@@ -50,17 +50,28 @@ artifacts-monorepo/
 │   │       │   └── ai-services.ts          # Service URLs and config
 │   │       ├── services/
 │   │       │   ├── director-agent.ts       # AI Director (uses LLM connector)
-│   │       │   └── connectors/
-│   │       │       ├── index.ts            # Central connector registry + health checks
-│   │       │       ├── llm-connector.ts    # LM Studio integration (chat + streaming)
-│   │       │       ├── image-connector.ts  # ComfyUI integration (workflow submission + polling)
-│   │       │       ├── video-connector.ts  # Wan2 integration (video via ComfyUI)
-│   │       │       └── render-connector.ts # FFmpeg integration (timeline export)
+│   │       │   ├── connectors/
+│   │       │   │   ├── index.ts            # Central connector registry + health checks
+│   │       │   │   ├── llm-connector.ts    # LM Studio integration (chat + streaming)
+│   │       │   │   ├── image-connector.ts  # ComfyUI integration (workflow submission + polling)
+│   │       │   │   ├── video-connector.ts  # Wan2 integration (video via ComfyUI)
+│   │       │   │   └── render-connector.ts # FFmpeg integration (timeline export)
+│   │       │   ├── job-queue/
+│   │       │   │   ├── queue.ts            # enqueueJob, enqueueImageJob, enqueueVideoJob, enqueueRenderJob
+│   │       │   │   ├── worker.ts           # Background polling worker (processes pending jobs)
+│   │       │   │   └── job-types.ts        # Job type constants and payload interfaces
+│   │       │   ├── evaluation/
+│   │       │   │   └── evaluator.ts        # AI quality scoring (prompt match, composition, quality)
+│   │       │   └── clips/
+│   │       │       ├── clip-manager.ts     # CRUD for reusable clip library
+│   │       │       └── clip-loader.ts      # Timeline clip management
 │   │       └── routes/
 │   │           ├── director.ts             # SSE streaming chat + storyboard generation
-│   │           ├── generate-image.ts       # Single + batch image generation via ComfyUI
-│   │           ├── generate-video.ts       # Video generation via Wan2
-│   │           ├── export.ts               # FFmpeg timeline export
+│   │           ├── generate-image.ts       # Queues image generation job (via job queue)
+│   │           ├── generate-video.ts       # Queues video generation job (via job queue)
+│   │           ├── export.ts               # Queues render job (via job queue)
+│   │           ├── clips.ts               # Clip library CRUD + sync from assets
+│   │           ├── generation-jobs.ts      # Job listing, status polling
 │   │           └── services.ts             # Service health check API
 │   └── director-os/                        # React+Vite frontend (root path /)
 ├── lib/
@@ -70,9 +81,9 @@ artifacts-monorepo/
 │   └── db/                 # Drizzle ORM schema + DB connection (22 tables)
 ```
 
-## Database Tables (22)
+## Database Tables (23)
 
-User, Project, ProjectProfile, Scene, Shot, StoryboardFrame, Asset, AssetVersion, PromptVersion, GenerationJob, EvaluationResult, ContinuityProfile, CharacterProfile, StyleProfile, VFXPlacement, TimelineSequence, TimelineClip, AudioCue, UserActionEvent, PreferenceSignal, Conversation, Message
+User, Project, ProjectProfile, Scene, Shot, StoryboardFrame, Asset, AssetVersion, PromptVersion, GenerationJob, EvaluationResult, ContinuityProfile, CharacterProfile, StyleProfile, VFXPlacement, TimelineSequence, TimelineClip, AudioCue, UserActionEvent, PreferenceSignal, Conversation, Message, Clip
 
 DB uses snake_case columns. API schema maps to camelCase:
 - `thumbnailUri` → `thumbnailUrl`
@@ -85,7 +96,7 @@ DB uses snake_case columns. API schema maps to camelCase:
 - `/projects/:id/director` — AI Director SSE streaming chat (via LM Studio) with Creative Intent panel
 - `/projects/:id/storyboard` — Storyboard Timeline: editable shot cards, inline edit panel, batch image generation (ComfyUI) with SSE progress
 - `/projects/:id/image-studio/:shotId` — Shot-specific image generation via ComfyUI: pre-populated prompt, generate/regenerate, variants
-- `/projects/:id/editor` — NLE-style timeline: draggable clip durations, transport controls, V1 video + A1 audio tracks
+- `/projects/:id/editor` — NLE-style timeline: draggable clip durations, transport controls, V1 video + A1 audio tracks, Clip Library sidebar with asset browser
 - `/projects/:id/video-studio/:shotId` — Per-shot video generation via Wan2: AI prompt transformer, camera motion, VFX layer
 - `/projects/:id/audio` — Audio Studio (placeholder)
 - `/settings` — AI Services panel: connection status for all 4 services, test buttons, pipeline architecture diagram
@@ -99,12 +110,18 @@ All mounted under `/api`:
 - `POST /projects/:projectId/assets`, `GET /assets/:id`
 - `POST /projects/:projectId/director/chat` — SSE streaming AI chat (LM Studio)
 - `POST /projects/:projectId/director/generate-storyboard` — AI storyboard generation (LM Studio)
-- `POST /generation-jobs`, `GET /generation-jobs/:id`
-- `POST /shots/:shotId/generate-image` — Single shot image generation (ComfyUI)
-- `POST /projects/:projectId/generate-all-images` — SSE batch image generation (ComfyUI)
+- `GET /generation-jobs` — Global job listing with status filter
+- `GET /generation-jobs/:jobId` — Single job with evaluations
+- `GET /projects/:projectId/generation-jobs` — Project-scoped job listing
+- `POST /shots/:shotId/generate-image` — Queue image generation job
+- `POST /projects/:projectId/generate-all-images` — Queue batch image generation
 - `POST /shots/:shotId/generate-video-prompt` — AI video prompt transformer (LM Studio)
-- `POST /shots/:shotId/generate-video` — Video generation from image (Wan2 via ComfyUI)
-- `POST /projects/:projectId/export` — FFmpeg timeline render to MP4
+- `POST /shots/:shotId/generate-video` — Queue video generation job
+- `POST /projects/:projectId/export` — Queue render job
+- `GET /projects/:projectId/clips` — List project clips
+- `POST /projects/:projectId/clips` — Create clip
+- `POST /projects/:projectId/clips/sync` — Auto-create clips from existing assets
+- `DELETE /clips/:clipId` — Delete clip
 - `GET /services/status` — All service health checks
 - `POST /services/test/:serviceName` — Test individual service connection
 
@@ -125,10 +142,37 @@ All mounted under `/api`:
 
 Every package extends `tsconfig.base.json` with `composite: true`. The root `tsconfig.json` lists all packages as project references.
 
+## Job Queue Architecture
+
+All AI generation goes through the job queue — routes never call connectors directly.
+
+Flow: API Route → `enqueueJob()` → DB (status: pending) → Worker polls → Connector → Evaluate → Update status
+
+- Worker polls every 3 seconds, processes one job at a time
+- Jobs support retry (configurable `maxRetries`, default 1 for generation, 0 for render)
+- After image/video generation, the evaluator scores quality (0-100)
+- If overall score < 70, the evaluator auto-enqueues a regeneration job
+- Evaluation scores stored in `evaluation_results` table with sub-scores (promptMatch, composition, quality)
+- Job status: `pending` → `processing` → `completed` | `failed`
+
+## Clip Library
+
+Reusable asset library that bridges generated assets and the timeline:
+- Clips are auto-created from assets via `/clips/sync` endpoint
+- Clip Library panel in Timeline Editor sidebar shows images, videos, and audio categorized
+- Clips are draggable from the library panel
+
+## UI Components
+
+- **JobStatusPanel**: Fixed bottom-right panel showing all active/recent generation jobs with real-time polling (3s interval). Shows job type, shot reference, status, and error messages. Collapsible and minimizable.
+
 ## Build Status
 
-- Foundation: COMPLETE — 22 DB tables, all API routes, 8 frontend pages
+- Foundation: COMPLETE — 23 DB tables, all API routes, 9 frontend pages
 - AI Director: COMPLETE — SSE streaming chat via LM Studio connector, AI storyboard generation
-- Pipeline UX: COMPLETE — Storyboard, Image Studio, Timeline Editor, Video Studio
+- Pipeline UX: COMPLETE — Storyboard, Image Studio, Timeline Editor (with Clip Library), Video Studio
 - External Integrations: COMPLETE — LM Studio, ComfyUI, Wan2, FFmpeg connectors with service health checks
 - Settings UI: COMPLETE — AI Services panel with connection status and test buttons
+- Job Queue: COMPLETE — Background worker, retry logic, all routes queue instead of direct calls
+- AI Evaluation: COMPLETE — Quality scoring via LLM, auto-regeneration below threshold
+- Clip Library: COMPLETE — Asset-to-clip sync, categorized browser in Editor sidebar

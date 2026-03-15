@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { useParams, Link, useLocation } from "wouter";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Scissors,
   Play,
@@ -17,6 +17,9 @@ import {
   Volume2,
   Loader2,
   Check,
+  Image as ImageIcon,
+  FolderOpen,
+  RefreshCcw,
 } from "lucide-react";
 import { useGetProject } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -37,6 +40,24 @@ interface TimelineClip {
   hasVideo: boolean;
 }
 
+interface LibraryClip {
+  id: number;
+  projectId: number;
+  shotId: number | null;
+  assetId: number | null;
+  clipType: string;
+  label: string | null;
+  durationMs: number | null;
+  asset: {
+    id: number;
+    storageUri: string;
+    thumbnailUri: string | null;
+    assetType: string;
+  } | null;
+}
+
+type SidebarTab = "inspector" | "clips";
+
 export default function Editor() {
   const { id } = useParams();
   const projectId = parseInt(id || "0");
@@ -52,6 +73,9 @@ export default function Editor() {
   const [selectedClipIdx, setSelectedClipIdx] = useState<number | null>(null);
   const [resizingClip, setResizingClip] = useState<number | null>(null);
   const [clipDurations, setClipDurations] = useState<Record<number, number>>({});
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("inspector");
+  const [libraryClips, setLibraryClips] = useState<LibraryClip[]>([]);
+  const [isSyncingClips, setIsSyncingClips] = useState(false);
 
   const clips: TimelineClip[] = useMemo(() => {
     if (!project?.scenes) return [];
@@ -120,7 +144,39 @@ export default function Editor() {
     });
   };
 
+  const fetchLibraryClips = async () => {
+    try {
+      const res = await fetch(`${BASE}/api/projects/${projectId}/clips`);
+      if (res.ok) {
+        const data = await res.json();
+        setLibraryClips(data);
+      }
+    } catch {}
+  };
+
+  const syncClips = async () => {
+    setIsSyncingClips(true);
+    try {
+      const res = await fetch(`${BASE}/api/projects/${projectId}/clips/sync`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setLibraryClips(data.clips);
+      }
+    } catch {}
+    setIsSyncingClips(false);
+  };
+
+  useEffect(() => {
+    if (projectId && sidebarTab === "clips") {
+      fetchLibraryClips();
+    }
+  }, [projectId, sidebarTab]);
+
   const playheadPosition = currentTimeMs * pxPerMs;
+
+  const imageClips = libraryClips.filter(c => c.clipType === "image");
+  const videoClips = libraryClips.filter(c => c.clipType === "video");
+  const audioClips = libraryClips.filter(c => c.clipType === "audio");
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden bg-background">
@@ -130,93 +186,227 @@ export default function Editor() {
             <Button
               variant="ghost"
               size="sm"
-              className={`flex-1 text-xs ${selectedClipIdx === null ? "bg-secondary" : ""}`}
-              onClick={() => setSelectedClipIdx(null)}
+              className={`flex-1 text-xs ${sidebarTab === "inspector" ? "bg-secondary" : ""}`}
+              onClick={() => setSidebarTab("inspector")}
             >
-              Overview
+              Inspector
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              className={`flex-1 text-xs ${selectedClipIdx !== null ? "bg-secondary" : ""}`}
+              className={`flex-1 text-xs ${sidebarTab === "clips" ? "bg-secondary" : ""}`}
+              onClick={() => setSidebarTab("clips")}
             >
-              Inspector
+              <FolderOpen className="w-3 h-3 mr-1" />
+              Clip Library
             </Button>
           </div>
           <ScrollArea className="flex-1 p-4">
-            {selectedClipIdx !== null && previewClip ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                    Selected Clip
-                  </h4>
+            {sidebarTab === "inspector" ? (
+              selectedClipIdx !== null && previewClip ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                      Selected Clip
+                    </h4>
+                    <div className="p-3 bg-background rounded-xl border border-white/5">
+                      <div className="text-sm font-mono font-bold text-primary">{previewClip.label}</div>
+                      <div className="text-xs text-muted-foreground capitalize mt-1">
+                        {previewClip.shotType.replace(/_/g, " ")} shot
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                      Duration
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0 rounded-lg border-white/10"
+                        onClick={() => handleClipResize(previewClip.shotId, -500)}
+                      >
+                        -
+                      </Button>
+                      <div className="flex-1 text-center font-mono text-sm">
+                        {(previewClip.durationMs / 1000).toFixed(1)}s
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0 rounded-lg border-white/10"
+                        onClick={() => handleClipResize(previewClip.shotId, 500)}
+                      >
+                        +
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                      Description
+                    </h4>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      {previewClip.promptSummary}
+                    </p>
+                  </div>
+
+                  <div className="pt-2 space-y-2">
+                    <Link href={`/projects/${projectId}/video-studio/${previewClip.shotId}`}>
+                      <Button
+                        variant="outline"
+                        className="w-full border-primary/50 text-primary hover:bg-primary/10 rounded-xl text-sm"
+                      >
+                        <Video className="w-4 h-4 mr-2" />
+                        Open in Video Studio
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
                   <div className="p-3 bg-background rounded-xl border border-white/5">
-                    <div className="text-sm font-mono font-bold text-primary">{previewClip.label}</div>
-                    <div className="text-xs text-muted-foreground capitalize mt-1">
-                      {previewClip.shotType.replace(/_/g, " ")} shot
+                    <div className="text-sm font-semibold">{clips.length} clips</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Total: {formatTime(totalDurationMs)}
                     </div>
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                    Duration
-                  </h4>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 w-8 p-0 rounded-lg border-white/10"
-                      onClick={() => handleClipResize(previewClip.shotId, -500)}
-                    >
-                      -
-                    </Button>
-                    <div className="flex-1 text-center font-mono text-sm">
-                      {(previewClip.durationMs / 1000).toFixed(1)}s
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 w-8 p-0 rounded-lg border-white/10"
-                      onClick={() => handleClipResize(previewClip.shotId, 500)}
-                    >
-                      +
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                    Description
-                  </h4>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {previewClip.promptSummary}
+                  <p className="text-xs text-muted-foreground">
+                    Click on a clip to inspect and adjust. Drag clip edges to change duration.
                   </p>
                 </div>
-
-                <div className="pt-2 space-y-2">
-                  <Link href={`/projects/${projectId}/video-studio/${previewClip.shotId}`}>
-                    <Button
-                      variant="outline"
-                      className="w-full border-primary/50 text-primary hover:bg-primary/10 rounded-xl text-sm"
-                    >
-                      <Video className="w-4 h-4 mr-2" />
-                      Open in Video Studio
-                    </Button>
-                  </Link>
-                </div>
-              </div>
+              )
             ) : (
               <div className="space-y-4">
-                <div className="p-3 bg-background rounded-xl border border-white/5">
-                  <div className="text-sm font-semibold">{clips.length} clips</div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    Total: {formatTime(totalDurationMs)}
-                  </div>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                    Assets
+                  </h4>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs px-2"
+                    onClick={syncClips}
+                    disabled={isSyncingClips}
+                  >
+                    {isSyncingClips ? (
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                    ) : (
+                      <RefreshCcw className="w-3 h-3 mr-1" />
+                    )}
+                    Sync
+                  </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Click on a clip to inspect and adjust. Drag clip edges to change duration.
-                </p>
+
+                {libraryClips.length === 0 ? (
+                  <div className="text-center py-8">
+                    <FolderOpen className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                    <p className="text-xs text-muted-foreground">
+                      No clips yet. Generate images or videos, then click Sync.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {imageClips.length > 0 && (
+                      <div>
+                        <h5 className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold mb-2 flex items-center gap-1">
+                          <ImageIcon className="w-3 h-3" />
+                          Images ({imageClips.length})
+                        </h5>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {imageClips.map((clip) => (
+                            <div
+                              key={clip.id}
+                              className="rounded-lg overflow-hidden border border-white/5 bg-background aspect-square relative group cursor-grab"
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData("clip-id", String(clip.id));
+                                e.dataTransfer.setData("clip-type", clip.clipType);
+                              }}
+                            >
+                              {clip.asset?.storageUri ? (
+                                <img
+                                  src={`${BASE}${clip.asset.storageUri}`}
+                                  alt={clip.label || ""}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <ImageIcon className="w-4 h-4 text-muted-foreground/30" />
+                                </div>
+                              )}
+                              <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1.5 py-0.5">
+                                <span className="text-[9px] text-white/80 truncate block">
+                                  {clip.label || `Image ${clip.id}`}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {videoClips.length > 0 && (
+                      <div>
+                        <h5 className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold mb-2 flex items-center gap-1">
+                          <Video className="w-3 h-3" />
+                          Videos ({videoClips.length})
+                        </h5>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {videoClips.map((clip) => (
+                            <div
+                              key={clip.id}
+                              className="rounded-lg overflow-hidden border border-white/5 bg-background aspect-video relative group cursor-grab"
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData("clip-id", String(clip.id));
+                                e.dataTransfer.setData("clip-type", clip.clipType);
+                              }}
+                            >
+                              {clip.asset?.thumbnailUri ? (
+                                <img
+                                  src={`${BASE}${clip.asset.thumbnailUri}`}
+                                  alt={clip.label || ""}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <Video className="w-4 h-4 text-muted-foreground/30" />
+                                </div>
+                              )}
+                              <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1.5 py-0.5">
+                                <span className="text-[9px] text-white/80 truncate block">
+                                  {clip.label || `Video ${clip.id}`}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {audioClips.length > 0 && (
+                      <div>
+                        <h5 className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold mb-2 flex items-center gap-1">
+                          <Volume2 className="w-3 h-3" />
+                          Audio ({audioClips.length})
+                        </h5>
+                        {audioClips.map((clip) => (
+                          <div
+                            key={clip.id}
+                            className="p-2 rounded-lg border border-white/5 bg-background mb-1 cursor-grab flex items-center gap-2"
+                            draggable
+                          >
+                            <Volume2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                            <span className="text-xs truncate">{clip.label || `Audio ${clip.id}`}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </ScrollArea>
@@ -346,7 +536,7 @@ export default function Editor() {
                           : "border-blue-500/40 hover:border-primary/50"
                       }`}
                       style={{ left: startX, width: clipWidth }}
-                      onClick={() => setSelectedClipIdx(idx)}
+                      onClick={() => { setSelectedClipIdx(idx); setSidebarTab("inspector"); }}
                     >
                       <div className="w-full h-full bg-blue-600/20 relative flex items-center overflow-hidden">
                         {clip.thumbnailUrl && (
