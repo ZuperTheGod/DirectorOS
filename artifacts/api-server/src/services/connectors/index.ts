@@ -1,14 +1,12 @@
-export * as llm from "./llm-connector";
 export * as image from "./image-connector";
 export * as video from "./video-connector";
 export * as render from "./render-connector";
-export * as openai from "./openai-connector";
 
-import { checkConnection as checkLLM } from "./llm-connector";
+import { LMStudioProvider } from "../llm/providers/lmstudio-provider";
+import { OpenAIProvider } from "../llm/providers/openai-provider";
 import { checkConnection as checkComfyUI } from "./image-connector";
 import { checkConnection as checkWan } from "./video-connector";
 import { checkConnection as checkFFmpeg } from "./render-connector";
-import { checkConnection as checkOpenAI } from "./openai-connector";
 
 export interface ServiceStatus {
   name: string;
@@ -18,12 +16,15 @@ export interface ServiceStatus {
 }
 
 export async function checkAllServices(): Promise<ServiceStatus[]> {
+  const lmProvider = new LMStudioProvider();
+  const openaiProvider = new OpenAIProvider();
+
   const [lmResult, comfyResult, wanResult, ffmpegResult, openaiResult] = await Promise.all([
-    checkLLM(),
+    lmProvider.checkConnection(),
     checkComfyUI(),
     checkWan(),
     checkFFmpeg(),
-    checkOpenAI(),
+    openaiProvider.checkConnection(),
   ]);
 
   return [

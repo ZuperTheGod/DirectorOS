@@ -15,9 +15,17 @@ import {
   Save,
   Pencil,
   MessageSquare,
+  Cpu,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -30,10 +38,14 @@ interface ServiceStatus {
 
 interface ServicesResponse {
   services: ServiceStatus[];
+  llmProvider: string;
+  activeLLM: string;
+  availableProviders: string[];
   config: Record<string, any>;
 }
 
 interface SettingsData {
+  llmProvider: string;
   lmstudio: { url: string; model: string };
   comfyui: { url: string };
   wan2gp: { url: string };
@@ -41,19 +53,30 @@ interface SettingsData {
   openai: { url: string; apiKey: string; model: string };
 }
 
+interface GPUStatus {
+  running: boolean;
+  processing: boolean;
+  gpu: {
+    busy: boolean;
+    currentJobId: number | null;
+    currentJobType: string | null;
+    uptimeMs: number | null;
+  };
+}
+
 const SERVICE_ICONS: Record<string, typeof Brain> = {
   "LM Studio": Brain,
   ComfyUI: ImageIcon,
-  Wan2GP: Video,
+  "Wan2GP": Video,
   FFmpeg: Film,
   "ChatGPT / OpenAI": MessageSquare,
 };
 
 const SERVICE_DESCRIPTIONS: Record<string, string> = {
   "LM Studio": "Local LLM for AI Director reasoning, scene planning, and prompt optimization",
-  ComfyUI: "Image generation workflows using Stable Diffusion and custom pipelines",
-  Wan2GP: "Video generation from images using Wan2.1 models via Gradio API",
-  FFmpeg: "Timeline rendering and final video export",
+  ComfyUI: "Image generation workflows using Stable Diffusion and custom ComfyUI pipelines",
+  "Wan2GP": "Video generation via Wan2.1 models running as ComfyUI custom nodes",
+  FFmpeg: "Timeline rendering, video conversion, and final export",
   "ChatGPT / OpenAI": "Cloud-based LLM for AI Director reasoning via OpenAI-compatible API",
 };
 
@@ -71,10 +94,10 @@ const SERVICE_CONFIG_KEYS: Record<string, { category: string; fields: { key: str
       { key: "url", label: "Server URL", placeholder: "http://localhost:8188" },
     ],
   },
-  Wan2GP: {
+  "Wan2GP": {
     category: "wan2gp",
     fields: [
-      { key: "url", label: "Server URL", placeholder: "http://localhost:7860" },
+      { key: "url", label: "ComfyUI URL (Wan2GP nodes)", placeholder: "http://localhost:8188" },
     ],
   },
   FFmpeg: {
@@ -93,10 +116,19 @@ const SERVICE_CONFIG_KEYS: Record<string, { category: string; fields: { key: str
   },
 };
 
+const PROVIDER_LABELS: Record<string, string> = {
+  auto: "Auto (OpenAI if key set, else LM Studio)",
+  lmstudio: "LM Studio (Local)",
+  openai: "ChatGPT / OpenAI (Cloud)",
+};
+
 export default function SettingsPage() {
   const [services, setServices] = useState<ServiceStatus[]>([]);
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [editedSettings, setEditedSettings] = useState<Record<string, Record<string, string>>>({});
+  const [llmProvider, setLlmProvider] = useState("auto");
+  const [activeLLM, setActiveLLM] = useState("");
+  const [gpuStatus, setGpuStatus] = useState<GPUStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -109,6 +141,7 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error("Failed to fetch");
       const data: ServicesResponse = await res.json();
       setServices(data.services);
+      setActiveLLM(data.activeLLM || "");
     } catch {
       setServices([]);
     }
@@ -120,6 +153,7 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error("Failed to fetch settings");
       const data: SettingsData = await res.json();
       setSettings(data);
+      setLlmProvider(data.llmProvider || "auto");
       setEditedSettings({
         lmstudio: { url: data.lmstudio.url, model: data.lmstudio.model },
         comfyui: { url: data.comfyui.url },
@@ -132,13 +166,20 @@ export default function SettingsPage() {
     }
   };
 
+  const fetchGPU = async () => {
+    try {
+      const res = await fetch(`${BASE}/api/services/gpu`);
+      if (res.ok) setGpuStatus(await res.json());
+    } catch {}
+  };
+
   useEffect(() => {
-    Promise.all([fetchStatus(), fetchSettings()]).finally(() => setIsLoading(false));
+    Promise.all([fetchStatus(), fetchSettings(), fetchGPU()]).finally(() => setIsLoading(false));
   }, []);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    Promise.all([fetchStatus(), fetchSettings()]).finally(() => setIsRefreshing(false));
+    Promise.all([fetchStatus(), fetchSettings(), fetchGPU()]).finally(() => setIsRefreshing(false));
   };
 
   const handleSave = async () => {
@@ -148,7 +189,7 @@ export default function SettingsPage() {
       const res = await fetch(`${BASE}/api/settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editedSettings),
+        body: JSON.stringify({ ...editedSettings, llmProvider }),
       });
       if (!res.ok) throw new Error("Save failed");
       await fetchSettings();
@@ -184,6 +225,7 @@ export default function SettingsPage() {
 
   const hasChanges = () => {
     if (!settings) return false;
+    if (llmProvider !== (settings.llmProvider || "auto")) return true;
     const s = settings as any;
     for (const [cat, fields] of Object.entries(editedSettings)) {
       for (const [key, val] of Object.entries(fields as Record<string, string>)) {
@@ -250,117 +292,177 @@ export default function SettingsPage() {
               Checking service connections...
             </div>
           ) : (
-            services.map((service, idx) => {
-              const Icon = SERVICE_ICONS[service.name] || Server;
-              const description = SERVICE_DESCRIPTIONS[service.name] || "";
-              const configDef = SERVICE_CONFIG_KEYS[service.name];
-              const isTesting = testingService === service.name;
+            <>
+              <div className="p-5 rounded-2xl border border-primary/20 bg-card">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <Brain className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-semibold text-foreground">LLM Provider</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Select which AI model powers the Director
+                      {activeLLM && (
+                        <span className="ml-2 text-primary font-medium">
+                          (active: {activeLLM})
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <Select value={llmProvider} onValueChange={setLlmProvider}>
+                  <SelectTrigger className="bg-background border-white/10 rounded-xl h-11">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(PROVIDER_LABELS).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-              return (
-                <motion.div
-                  key={service.name}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.05 }}
-                  className={`p-5 rounded-2xl border transition-colors ${
-                    service.connected
-                      ? "bg-card border-emerald-500/20"
-                      : "bg-card border-red-500/20"
-                  }`}
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-start gap-4">
-                      <div
-                        className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
-                          service.connected
-                            ? "bg-emerald-500/10 text-emerald-400"
-                            : "bg-red-500/10 text-red-400"
-                        }`}
-                      >
-                        <Icon className="w-6 h-6" />
+              {gpuStatus && (
+                <div className={`p-4 rounded-2xl border ${gpuStatus.gpu.busy ? "border-amber-500/20 bg-amber-500/5" : "border-emerald-500/20 bg-emerald-500/5"}`}>
+                  <div className="flex items-center gap-3">
+                    <Cpu className={`w-5 h-5 ${gpuStatus.gpu.busy ? "text-amber-400" : "text-emerald-400"}`} />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-foreground">GPU Scheduler</span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                          gpuStatus.gpu.busy
+                            ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                            : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                        }`}>
+                          {gpuStatus.gpu.busy ? "BUSY" : "IDLE"}
+                        </span>
                       </div>
-                      <div>
-                        <div className="flex items-center gap-3">
-                          <h3 className="font-display font-semibold text-foreground">
-                            {service.name}
-                          </h3>
-                          {service.connected ? (
-                            <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                              <CheckCircle2 className="w-3 h-3" />
-                              Connected
-                            </span>
-                          ) : (
-                            <span className="flex items-center gap-1.5 text-xs font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-500/20">
-                              <XCircle className="w-3 h-3" />
-                              Disconnected
-                            </span>
+                      {gpuStatus.gpu.busy && gpuStatus.gpu.currentJobType && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Processing {gpuStatus.gpu.currentJobType} job #{gpuStatus.gpu.currentJobId}
+                          {gpuStatus.gpu.uptimeMs && ` (${Math.round(gpuStatus.gpu.uptimeMs / 1000)}s)`}
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Worker: {gpuStatus.running ? "Running" : "Stopped"}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {services.map((service, idx) => {
+                const Icon = SERVICE_ICONS[service.name] || Server;
+                const description = SERVICE_DESCRIPTIONS[service.name] || "";
+                const configDef = SERVICE_CONFIG_KEYS[service.name];
+                const isTesting = testingService === service.name;
+
+                return (
+                  <motion.div
+                    key={service.name}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                    className={`p-5 rounded-2xl border transition-colors ${
+                      service.connected
+                        ? "bg-card border-emerald-500/20"
+                        : "bg-card border-red-500/20"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-start gap-4">
+                        <div
+                          className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
+                            service.connected
+                              ? "bg-emerald-500/10 text-emerald-400"
+                              : "bg-red-500/10 text-red-400"
+                          }`}
+                        >
+                          <Icon className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-3">
+                            <h3 className="font-display font-semibold text-foreground">
+                              {service.name}
+                            </h3>
+                            {service.connected ? (
+                              <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                                <CheckCircle2 className="w-3 h-3" />
+                                Connected
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1.5 text-xs font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-500/20">
+                                <XCircle className="w-3 h-3" />
+                                Disconnected
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-1">{description}</p>
+
+                          {service.error && !service.connected && (
+                            <div className="mt-2 text-xs text-red-400/80 bg-red-500/5 px-3 py-1.5 rounded-lg border border-red-500/10">
+                              {service.error}
+                            </div>
+                          )}
+
+                          {service.details && (
+                            <div className="mt-2 text-xs text-muted-foreground">
+                              {service.details.models && (
+                                <span>Models: {(service.details.models as string[]).join(", ")}</span>
+                              )}
+                              {service.details.version && (
+                                <span>Version: {service.details.version}</span>
+                              )}
+                            </div>
                           )}
                         </div>
-                        <p className="text-sm text-muted-foreground mt-1">{description}</p>
-
-                        {service.error && !service.connected && (
-                          <div className="mt-2 text-xs text-red-400/80 bg-red-500/5 px-3 py-1.5 rounded-lg border border-red-500/10">
-                            {service.error}
-                          </div>
-                        )}
-
-                        {service.details && (
-                          <div className="mt-2 text-xs text-muted-foreground">
-                            {service.details.models && (
-                              <span>Models: {(service.details.models as string[]).join(", ")}</span>
-                            )}
-                            {service.details.version && (
-                              <span>Version: {service.details.version}</span>
-                            )}
-                          </div>
-                        )}
                       </div>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleTestService(service.name)}
+                        disabled={isTesting}
+                        className="border-white/10 rounded-xl text-xs shrink-0"
+                      >
+                        {isTesting ? (
+                          <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                        ) : (
+                          <Wifi className="w-3 h-3 mr-1.5" />
+                        )}
+                        Test
+                      </Button>
                     </div>
 
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleTestService(service.name)}
-                      disabled={isTesting}
-                      className="border-white/10 rounded-xl text-xs shrink-0"
-                    >
-                      {isTesting ? (
-                        <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
-                      ) : (
-                        <Wifi className="w-3 h-3 mr-1.5" />
-                      )}
-                      Test
-                    </Button>
-                  </div>
-
-                  {configDef && editedSettings[configDef.category] && (
-                    <div className="border-t border-white/5 pt-4 mt-4">
-                      <div className="grid gap-3">
-                        {configDef.fields.map((field) => (
-                          <div key={field.key} className="flex flex-col gap-1.5">
-                            <label className="text-xs text-muted-foreground uppercase tracking-wider font-medium">
-                              {field.label}
-                            </label>
-                            <div className="relative">
-                              <input
-                                type={field.type || "text"}
-                                value={editedSettings[configDef.category]?.[field.key] || ""}
-                                onChange={(e) =>
-                                  updateField(configDef.category, field.key, e.target.value)
-                                }
-                                placeholder={field.placeholder}
-                                className="w-full bg-background text-sm text-foreground px-3 py-2.5 rounded-xl border border-white/10 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder:text-muted-foreground/40"
-                              />
-                              <Pencil className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/30" />
+                    {configDef && editedSettings[configDef.category] && (
+                      <div className="border-t border-white/5 pt-4 mt-4">
+                        <div className="grid gap-3">
+                          {configDef.fields.map((field) => (
+                            <div key={field.key} className="flex flex-col gap-1.5">
+                              <label className="text-xs text-muted-foreground uppercase tracking-wider font-medium">
+                                {field.label}
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type={field.type || "text"}
+                                  value={editedSettings[configDef.category]?.[field.key] || ""}
+                                  onChange={(e) =>
+                                    updateField(configDef.category, field.key, e.target.value)
+                                  }
+                                  placeholder={field.placeholder}
+                                  className="w-full bg-background text-sm text-foreground px-3 py-2.5 rounded-xl border border-white/10 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder:text-muted-foreground/40"
+                                />
+                                <Pencil className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/30" />
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </motion.div>
-              );
-            })
+                    )}
+                  </motion.div>
+                );
+              })}
+            </>
           )}
 
           <div className="p-5 bg-card/50 border border-white/5 rounded-2xl mt-8">
@@ -368,13 +470,13 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
               <span className="bg-background px-3 py-1.5 rounded-lg border border-white/5">User Idea</span>
               <span className="text-white/20">&rarr;</span>
-              <span className="bg-primary/10 text-primary px-3 py-1.5 rounded-lg border border-primary/20">LM Studio / ChatGPT</span>
+              <span className="bg-primary/10 text-primary px-3 py-1.5 rounded-lg border border-primary/20">LLM Provider</span>
               <span className="text-white/20">&rarr;</span>
               <span className="bg-background px-3 py-1.5 rounded-lg border border-white/5">Storyboard</span>
               <span className="text-white/20">&rarr;</span>
-              <span className="bg-amber-500/10 text-amber-400 px-3 py-1.5 rounded-lg border border-amber-500/20">ComfyUI</span>
+              <span className="bg-amber-500/10 text-amber-400 px-3 py-1.5 rounded-lg border border-amber-500/20">ComfyUI (SDXL)</span>
               <span className="text-white/20">&rarr;</span>
-              <span className="bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/20">Wan2GP</span>
+              <span className="bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/20">ComfyUI (Wan2GP)</span>
               <span className="text-white/20">&rarr;</span>
               <span className="bg-background px-3 py-1.5 rounded-lg border border-white/5">Timeline</span>
               <span className="text-white/20">&rarr;</span>
@@ -390,7 +492,7 @@ export default function SettingsPage() {
               <div className="flex gap-3">
                 <span className="shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold">1</span>
                 <div>
-                  <span className="text-foreground font-medium">LM Studio</span> &mdash; Download from lmstudio.ai, load a model, and start the local server on port 1234.
+                  <span className="text-foreground font-medium">LM Studio</span> &mdash; Download from lmstudio.ai, load a model, and start the local server on port 1234. Or use OpenAI by adding your API key above.
                 </div>
               </div>
               <div className="flex gap-3">
@@ -402,13 +504,13 @@ export default function SettingsPage() {
               <div className="flex gap-3">
                 <span className="shrink-0 w-6 h-6 rounded-full bg-blue-500/10 text-blue-400 text-xs flex items-center justify-center font-bold">3</span>
                 <div>
-                  <span className="text-foreground font-medium">Wan2GP</span> &mdash; Clone from github.com/deepbeepmeep/Wan2GP, install dependencies, and run on port 7860. Supports image-to-video generation using Wan2.1 models.
+                  <span className="text-foreground font-medium">Wan2GP</span> &mdash; Install Wan2GP custom nodes into ComfyUI. Load wan2.1 checkpoints. Video generation runs as a ComfyUI workflow.
                 </div>
               </div>
               <div className="flex gap-3">
                 <span className="shrink-0 w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-400 text-xs flex items-center justify-center font-bold">4</span>
                 <div>
-                  <span className="text-foreground font-medium">FFmpeg</span> &mdash; Install system-wide for timeline rendering and video export. Usually pre-installed on Linux.
+                  <span className="text-foreground font-medium">FFmpeg</span> &mdash; Install system-wide for video conversion (WEBP/GIF to MP4), timeline rendering, and final export.
                 </div>
               </div>
             </div>

@@ -1,4 +1,4 @@
-import { eq, asc, and, sql } from "drizzle-orm";
+import { eq, asc, and, sql, inArray } from "drizzle-orm";
 import {
   db,
   generationJobsTable,
@@ -12,6 +12,7 @@ import { generateImage } from "../connectors/image-connector";
 import { generateVideo } from "../connectors/video-connector";
 import { renderTimeline, type TimelineClip as RenderClip } from "../connectors/render-connector";
 import { evaluateAsset } from "../evaluation/evaluator";
+import { canProcessJob, claimGPU, releaseGPU, getGPUIntensity, getGPUStatus } from "./gpu-scheduler";
 import type { ImageJobPayload, VideoJobPayload, RenderJobPayload } from "./job-types";
 import * as fs from "fs";
 import * as path from "path";
@@ -54,23 +55,60 @@ export function stopWorker() {
   console.log("[JobWorker] Stopped");
 }
 
+export function getWorkerStatus() {
+  return {
+    running: isRunning,
+    processing: isProcessing,
+    gpu: getGPUStatus(),
+  };
+}
+
 async function processNextJob() {
-  const claimed = await db.update(generationJobsTable).set({
-    status: "processing",
-    updatedAt: new Date(),
-  }).where(
-    and(
-      eq(generationJobsTable.status, "pending"),
-      eq(generationJobsTable.id,
-        sql`(SELECT id FROM generation_jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1)`
+  const pendingJobs = await db
+    .select()
+    .from(generationJobsTable)
+    .where(eq(generationJobsTable.status, "pending"))
+    .orderBy(asc(generationJobsTable.createdAt))
+    .limit(10);
+
+  if (pendingJobs.length === 0) return;
+
+  let selectedJob = null;
+
+  for (const job of pendingJobs) {
+    if (canProcessJob(job.jobType)) {
+      selectedJob = job;
+      break;
+    }
+  }
+
+  if (!selectedJob) return;
+
+  const claimed = await db
+    .update(generationJobsTable)
+    .set({
+      status: "processing",
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(generationJobsTable.id, selectedJob.id),
+        eq(generationJobsTable.status, "pending")
       )
     )
-  ).returning();
+    .returning();
 
   const job = claimed[0];
   if (!job) return;
 
-  console.log(`[JobWorker] Processing job #${job.id} (${job.jobType})`);
+  const gpuIntensity = getGPUIntensity(job.jobType);
+  const needsGPU = gpuIntensity !== "none";
+
+  if (needsGPU) {
+    claimGPU(job.id, job.jobType);
+  }
+
+  console.log(`[JobWorker] Processing job #${job.id} (${job.jobType}, GPU: ${gpuIntensity})`);
 
   try {
     switch (job.jobType) {
@@ -117,6 +155,10 @@ async function processNextJob() {
         updatedAt: new Date(),
         completedAt: new Date(),
       }).where(eq(generationJobsTable.id, job.id));
+    }
+  } finally {
+    if (needsGPU) {
+      releaseGPU(job.id);
     }
   }
 }
@@ -174,7 +216,7 @@ async function processVideoJob(jobId: number, payload: VideoJobPayload) {
   const buffer = await generateVideo({ imageFilePath, prompt, frames, motionStrength, seed });
 
   ensureDir(ASSETS_DIR);
-  const filename = `video_${shotId}_${Date.now()}.webp`;
+  const filename = `video_${shotId}_${Date.now()}.mp4`;
   const filepath = path.join(ASSETS_DIR, filename);
   fs.writeFileSync(filepath, buffer);
 
@@ -187,7 +229,7 @@ async function processVideoJob(jobId: number, payload: VideoJobPayload) {
     assetType: "video",
     storageUri: videoUrl,
     thumbnailUri: shot?.thumbnailUri || null,
-    metadataJson: { prompt, shotId, frames, motionStrength, generationJobId: jobId, provider: "wan2" },
+    metadataJson: { prompt, shotId, frames, motionStrength, generationJobId: jobId, provider: "wan2gp-comfyui" },
   }).returning();
 
   await db.update(shotsTable).set({

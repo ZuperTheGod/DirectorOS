@@ -1,6 +1,6 @@
 import { db, evaluationResultsTable, generationJobsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { chatCompletion } from "../connectors/llm-connector";
+import { getLLMProvider } from "../llm/llm-service";
 import { enqueueJob } from "../job-queue/queue";
 
 const QUALITY_THRESHOLD = 70;
@@ -13,7 +13,8 @@ export async function evaluateAsset(
   mediaType: "image" | "video"
 ): Promise<{ accepted: boolean; overall: number }> {
   try {
-    const response = await chatCompletion({
+    const llm = await getLLMProvider();
+    const response = await llm.chat({
       messages: [
         {
           role: "system",

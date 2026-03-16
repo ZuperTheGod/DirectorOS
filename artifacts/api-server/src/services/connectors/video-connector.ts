@@ -1,262 +1,236 @@
 import { getConfig } from "../../config/ai-services";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import * as fs from "fs";
 import * as path from "path";
-import FormData from "form-data";
+
+const execFileAsync = promisify(execFile);
 
 export interface VideoGenerationParams {
   imageFilePath: string;
   prompt: string;
+  negativePrompt?: string;
   frames?: number;
   motionStrength?: number;
   seed?: number;
   width?: number;
   height?: number;
+  model?: string;
 }
 
-async function uploadImageToWan2GP(imagePath: string, wan2gpUrl: string): Promise<string> {
+const WORKFLOWS_DIR = path.join(process.cwd(), "workflows");
+
+function loadWorkflow(name: string): Record<string, any> {
+  const filePath = path.join(WORKFLOWS_DIR, `${name}.json`);
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Workflow file not found: ${filePath}`);
+  }
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function buildI2VWorkflow(params: VideoGenerationParams, uploadedFilename: string): Record<string, any> {
+  const workflow = loadWorkflow("wan_image_to_video");
+
+  if (workflow["1"]?.inputs) {
+    workflow["1"].inputs.image = uploadedFilename;
+  }
+
+  if (workflow["2"]?.inputs) {
+    workflow["2"].inputs.text = params.prompt;
+  }
+
+  if (workflow["3"]?.inputs) {
+    workflow["3"].inputs.text = params.negativePrompt || "";
+  }
+
+  if (workflow["4"]?.inputs) {
+    workflow["4"].inputs.width = params.width ?? 832;
+    workflow["4"].inputs.height = params.height ?? 480;
+    workflow["4"].inputs.num_frames = params.frames ?? 81;
+    workflow["4"].inputs.seed = params.seed ?? Math.floor(Math.random() * 2147483647);
+    workflow["4"].inputs.motion_strength = params.motionStrength ?? 10;
+  }
+
+  return workflow;
+}
+
+async function uploadImageToComfyUI(imagePath: string, comfyUrl: string): Promise<string> {
   const fileBuffer = fs.readFileSync(imagePath);
   const fileName = path.basename(imagePath);
 
   const formData = new FormData();
-  formData.append("files", fileBuffer, {
-    filename: fileName,
-    contentType: "image/png",
-  });
+  formData.append("image", new Blob([fileBuffer]), fileName);
+  formData.append("overwrite", "true");
 
-  const response = await fetch(`${wan2gpUrl}/upload`, {
+  const response = await fetch(`${comfyUrl}/upload/image`, {
     method: "POST",
-    body: formData as any,
-    headers: formData.getHeaders(),
+    body: formData,
   });
 
   if (!response.ok) {
     const errText = await response.text().catch(() => "Unknown error");
-    throw new Error(`Wan2GP upload failed (${response.status}): ${errText}`);
+    throw new Error(`ComfyUI image upload failed (${response.status}): ${errText}`);
   }
 
-  const result = await response.json() as string[];
-  if (!result || result.length === 0) throw new Error("Wan2GP upload returned no files");
-  return result[0];
+  const result = (await response.json()) as any;
+  return result.name || fileName;
 }
 
-async function callGradioAPI(
-  wan2gpUrl: string,
-  fnIndex: number,
-  data: any[]
-): Promise<any> {
-  const submitResponse = await fetch(`${wan2gpUrl}/api/predict`, {
+async function submitWorkflow(comfyUrl: string, workflow: Record<string, any>): Promise<string> {
+  const response = await fetch(`${comfyUrl}/prompt`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      fn_index: fnIndex,
-      data: data,
-      session_hash: `directoros_${Date.now()}`,
-    }),
+    body: JSON.stringify({ prompt: workflow }),
   });
 
-  if (!submitResponse.ok) {
-    const errText = await submitResponse.text().catch(() => "Unknown error");
-    throw new Error(`Wan2GP API error (${submitResponse.status}): ${errText}`);
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "Unknown error");
+    throw new Error(`ComfyUI workflow submit error (${response.status}): ${errorText}`);
   }
 
-  return await submitResponse.json();
+  const result = (await response.json()) as any;
+  return result.prompt_id;
 }
 
-async function callGradioQueue(
-  wan2gpUrl: string,
-  fnIndex: number,
-  data: any[],
-  timeoutMs: number = 600000
-): Promise<any> {
-  const sessionHash = `directoros_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-  const pushResponse = await fetch(`${wan2gpUrl}/queue/push`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      fn_index: fnIndex,
-      data: data,
-      session_hash: sessionHash,
-    }),
-  });
-
-  if (!pushResponse.ok) {
-    const errText = await pushResponse.text().catch(() => "Unknown error");
-    throw new Error(`Wan2GP queue push failed (${pushResponse.status}): ${errText}`);
-  }
-
-  const pushResult = await pushResponse.json() as any;
-  const eventId = pushResult.hash;
-
+async function pollForCompletion(comfyUrl: string, promptId: string, timeoutMs: number = 600000): Promise<string[]> {
   const startTime = Date.now();
+
   while (Date.now() - startTime < timeoutMs) {
-    const statusResponse = await fetch(`${wan2gpUrl}/queue/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hash: eventId }),
-    });
-
-    if (statusResponse.ok) {
-      const statusData = await statusResponse.json() as any;
-
-      if (statusData.status === "COMPLETE") {
-        return statusData.data;
-      }
-      if (statusData.status === "FAILED" || statusData.status === "ERROR") {
-        throw new Error(`Wan2GP generation failed: ${JSON.stringify(statusData)}`);
-      }
+    const response = await fetch(`${comfyUrl}/history/${promptId}`);
+    if (!response.ok) {
+      await new Promise((r) => setTimeout(r, 3000));
+      continue;
     }
 
-    await new Promise(r => setTimeout(r, 3000));
-  }
+    const data = (await response.json()) as any;
+    const history = data[promptId];
 
-  throw new Error("Wan2GP generation timed out");
-}
-
-async function pollSSEForResult(wan2gpUrl: string, sessionHash: string, timeoutMs: number = 600000): Promise<any> {
-  const startTime = Date.now();
-
-  while (Date.now() - startTime < timeoutMs) {
-    try {
-      const response = await fetch(`${wan2gpUrl}/queue/data?session_hash=${sessionHash}`, {
-        signal: AbortSignal.timeout(30000),
-      });
-
-      if (!response.ok || !response.body) {
-        await new Promise(r => setTimeout(r, 2000));
-        continue;
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const event = JSON.parse(line.slice(6));
-            if (event.msg === "process_completed") {
-              return event.output;
-            }
-            if (event.msg === "process_generating") {
-              console.log("[Wan2GP] Generating...", event.output?.progress_data);
-            }
-          } catch {}
+    if (history?.status?.completed) {
+      const outputs: string[] = [];
+      for (const nodeId of Object.keys(history.outputs || {})) {
+        const nodeOutput = history.outputs[nodeId];
+        if (nodeOutput.images) {
+          for (const img of nodeOutput.images) {
+            outputs.push(img.filename);
+          }
+        }
+        if (nodeOutput.gifs) {
+          for (const gif of nodeOutput.gifs) {
+            outputs.push(gif.filename);
+          }
         }
       }
-    } catch {
-      await new Promise(r => setTimeout(r, 2000));
+      return outputs;
     }
+
+    if (history?.status?.status_str === "error") {
+      throw new Error("ComfyUI video workflow failed");
+    }
+
+    await new Promise((r) => setTimeout(r, 3000));
   }
 
-  throw new Error("Wan2GP SSE polling timed out");
+  throw new Error("ComfyUI video workflow timed out");
+}
+
+async function downloadOutput(comfyUrl: string, filename: string): Promise<Buffer> {
+  const response = await fetch(`${comfyUrl}/view?filename=${encodeURIComponent(filename)}`);
+  if (!response.ok) throw new Error(`Failed to download output: ${response.status}`);
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+async function convertToMp4(inputPath: string, outputPath: string, ffmpegBin: string): Promise<void> {
+  const ext = path.extname(inputPath).toLowerCase();
+
+  if (ext === ".mp4") {
+    fs.copyFileSync(inputPath, outputPath);
+    return;
+  }
+
+  await execFileAsync(ffmpegBin, [
+    "-y",
+    "-i", inputPath,
+    "-c:v", "libx264",
+    "-pix_fmt", "yuv420p",
+    "-movflags", "+faststart",
+    outputPath,
+  ]);
 }
 
 export async function generateVideo(params: VideoGenerationParams): Promise<Buffer> {
   const config = await getConfig();
-  const wan2gpUrl = config.wan2gp.url;
+  const comfyUrl = config.comfyui.url;
 
-  const sessionHash = `directoros_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-  const imagePath = params.imageFilePath;
-
-  if (!fs.existsSync(imagePath)) {
-    throw new Error(`Source image not found: ${imagePath}`);
+  if (!fs.existsSync(params.imageFilePath)) {
+    throw new Error(`Source image not found: ${params.imageFilePath}`);
   }
 
-  const uploadedPath = await uploadImageToWan2GP(imagePath, wan2gpUrl);
+  console.log("[VideoConnector] Uploading image to ComfyUI...");
+  const uploadedFilename = await uploadImageToComfyUI(params.imageFilePath, comfyUrl);
 
-  const joinResponse = await fetch(`${wan2gpUrl}/queue/join`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      data: [
-        null,
-        uploadedPath,
-        params.prompt,
-        "",
-        params.width ?? 832,
-        params.height ?? 480,
-        params.frames ?? 81,
-        params.seed ?? -1,
-        params.motionStrength ?? 10,
-        30,
-        5.0,
-        "unipc_bh2",
-      ],
-      fn_index: 0,
-      session_hash: sessionHash,
-    }),
-  });
+  console.log("[VideoConnector] Building Wan2GP workflow...");
+  const workflow = buildI2VWorkflow(params, uploadedFilename);
 
-  if (!joinResponse.ok) {
-    const errText = await joinResponse.text().catch(() => "Unknown error");
-    throw new Error(`Wan2GP queue join failed (${joinResponse.status}): ${errText}`);
+  console.log("[VideoConnector] Submitting workflow to ComfyUI...");
+  const promptId = await submitWorkflow(comfyUrl, workflow);
+  console.log(`[VideoConnector] Workflow submitted (prompt_id: ${promptId})`);
+
+  console.log("[VideoConnector] Polling for completion...");
+  const outputFiles = await pollForCompletion(comfyUrl, promptId);
+
+  if (outputFiles.length === 0) {
+    throw new Error("ComfyUI Wan2GP workflow produced no output");
   }
 
-  const result = await pollSSEForResult(wan2gpUrl, sessionHash);
+  console.log(`[VideoConnector] Downloading output: ${outputFiles[0]}`);
+  const rawBuffer = await downloadOutput(comfyUrl, outputFiles[0]);
 
-  if (!result || !result.data) {
-    throw new Error("Wan2GP returned no output data");
+  const outputExt = path.extname(outputFiles[0]).toLowerCase();
+  if (outputExt === ".mp4") {
+    return rawBuffer;
   }
 
-  const outputData = result.data;
-  let videoUrl: string | null = null;
+  console.log(`[VideoConnector] Converting ${outputExt} to MP4...`);
+  const tempDir = path.join(process.cwd(), ".temp_video");
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
-  if (Array.isArray(outputData)) {
-    for (const item of outputData) {
-      if (typeof item === "object" && item !== null) {
-        if (item.video && typeof item.video === "object" && item.video.path) {
-          videoUrl = item.video.path;
-          break;
-        }
-        if (item.path && typeof item.path === "string") {
-          videoUrl = item.path;
-          break;
-        }
-      }
-      if (typeof item === "string" && (item.endsWith(".mp4") || item.endsWith(".webm") || item.endsWith(".webp"))) {
-        videoUrl = item;
-        break;
-      }
-    }
+  const tempInput = path.join(tempDir, `raw_${Date.now()}${outputExt}`);
+  const tempOutput = path.join(tempDir, `converted_${Date.now()}.mp4`);
+
+  fs.writeFileSync(tempInput, rawBuffer);
+
+  try {
+    await convertToMp4(tempInput, tempOutput, config.ffmpeg.path);
+    const mp4Buffer = fs.readFileSync(tempOutput);
+    return mp4Buffer;
+  } finally {
+    try { fs.unlinkSync(tempInput); } catch {}
+    try { fs.unlinkSync(tempOutput); } catch {}
   }
-
-  if (!videoUrl) {
-    throw new Error(`Wan2GP output format unexpected: ${JSON.stringify(outputData).slice(0, 500)}`);
-  }
-
-  const downloadUrl = videoUrl.startsWith("http") ? videoUrl : `${wan2gpUrl}/file=${videoUrl}`;
-  const videoResponse = await fetch(downloadUrl);
-  if (!videoResponse.ok) {
-    throw new Error(`Failed to download Wan2GP video: ${videoResponse.status}`);
-  }
-
-  const arrayBuffer = await videoResponse.arrayBuffer();
-  return Buffer.from(arrayBuffer);
 }
 
 export async function checkConnection(): Promise<{ connected: boolean; error?: string }> {
   try {
     const config = await getConfig();
-    const { url } = config.wan2gp;
-    const response = await fetch(`${url}/info`, { signal: AbortSignal.timeout(5000) });
+    const { url } = config.comfyui;
+
+    const response = await fetch(`${url}/object_info/WanImageToVideo`, {
+      signal: AbortSignal.timeout(5000),
+    });
+
     if (response.ok) {
       return { connected: true };
     }
-    const configResponse = await fetch(`${url}/config`, { signal: AbortSignal.timeout(5000) });
-    if (configResponse.ok) {
+
+    const sysResponse = await fetch(`${url}/system_stats`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (sysResponse.ok) {
       return { connected: true };
     }
-    return { connected: false, error: `Wan2GP not reachable at ${url}` };
+
+    return { connected: false, error: "ComfyUI not reachable or Wan2GP nodes not installed" };
   } catch (err: any) {
     return { connected: false, error: err.message };
   }

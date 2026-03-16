@@ -1,14 +1,21 @@
 import { Router, type IRouter } from "express";
 import { checkAllServices } from "../services/connectors";
 import { getConfig } from "../config/ai-services";
+import { getWorkerStatus } from "../services/job-queue/worker";
+import { getLLMProvider, getAvailableProviders } from "../services/llm/llm-service";
 
 const router: IRouter = Router();
 
 router.get("/services/status", async (_req, res): Promise<void> => {
   const statuses = await checkAllServices();
   const config = await getConfig();
+  const activeProvider = await getLLMProvider();
+
   res.json({
     services: statuses,
+    llmProvider: config.llmProvider,
+    activeLLM: activeProvider.name,
+    availableProviders: getAvailableProviders(),
     config: {
       lmstudio: { url: config.lmstudio.url, model: config.lmstudio.model },
       comfyui: { url: config.comfyui.url },
@@ -17,6 +24,11 @@ router.get("/services/status", async (_req, res): Promise<void> => {
       openai: { url: config.openai.url, model: config.openai.model },
     },
   });
+});
+
+router.get("/services/gpu", async (_req, res): Promise<void> => {
+  const status = getWorkerStatus();
+  res.json(status);
 });
 
 router.post("/services/test/:serviceName", async (req, res): Promise<void> => {

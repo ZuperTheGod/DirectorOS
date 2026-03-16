@@ -1,0 +1,333 @@
+DirectorOS Upgrade Instructions
+Multi-Provider LLM + Wan2GP Integration + GPU Task Scheduler
+
+These tasks fix current architectural limitations and prepare DirectorOS for scalable AI generation.
+
+TASK 1 — Multi-Provider LLM System
+Problem
+
+The system currently assumes LM Studio is the only LLM. DirectorOS must support multiple providers.
+
+Example providers:
+
+LM Studio
+OpenAI (ChatGPT)
+Ollama (future)
+Anthropic (future)
+
+DirectorOS should call a unified LLM service instead of calling LM Studio directly.
+
+Implementation
+Create LLM Provider Interface
+
+Create:
+
+services/llm/llm-provider.ts
+
+Example interface:
+
+export interface LLMProvider {
+  chat(messages: any[]): Promise<string>;
+  streamChat(messages: any[], onToken: (token: string) => void): Promise<void>;
+  generateTitle(messages: any[]): Promise<string>;
+}
+Create Provider Implementations
+
+Directory:
+
+services/llm/providers/
+
+Files:
+
+lmstudio-provider.ts
+openai-provider.ts
+LM Studio Provider
+
+Move existing LM Studio connector logic into:
+
+lmstudio-provider.ts
+
+Use endpoint:
+
+http://localhost:1234/v1/chat/completions
+OpenAI Provider
+
+Create OpenAI implementation.
+
+Example:
+
+import OpenAI from "openai";
+
+export class OpenAIProvider implements LLMProvider {
+
+  async chat(messages) {
+    const res = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages
+    });
+
+    return res.choices[0].message.content;
+  }
+
+}
+Create LLM Router
+
+File:
+
+services/llm/llm-service.ts
+
+Example:
+
+export function getLLMProvider(): LLMProvider {
+
+  const provider = process.env.LLM_PROVIDER;
+
+  if(provider === "lmstudio") {
+    return new LMStudioProvider();
+  }
+
+  if(provider === "openai") {
+    return new OpenAIProvider();
+  }
+
+  throw new Error("Unknown LLM provider");
+}
+Update Director Routes
+
+Replace all direct LM Studio calls.
+
+Old:
+
+lmstudioConnector.chat()
+
+New:
+
+const llm = getLLMProvider();
+await llm.chat(messages);
+Environment Config
+
+Add environment variables:
+
+LLM_PROVIDER=lmstudio
+OPENAI_API_KEY=...
+LMSTUDIO_URL=http://localhost:1234
+TASK 2 — Wan2GP Integration (Correct ComfyUI Workflow Method)
+Problem
+
+Wan2GP is not a standalone API server.
+
+It runs inside ComfyUI as a custom node.
+
+DirectorOS must send a ComfyUI workflow that includes Wan2GP nodes.
+
+Implementation
+Create Workflow Folder
+
+Add directory:
+
+workflows/
+
+Example files:
+
+wan_video.json
+wan_image_to_video.json
+sdxl_image.json
+
+These should match the example workflows from the Wan2GP repository.
+
+Update Video Connector
+
+File:
+
+services/connectors/video-connector.ts
+
+Instead of generating workflows dynamically, load them from file.
+
+Example:
+
+import fs from "fs";
+
+const workflow = JSON.parse(
+  fs.readFileSync("workflows/wan_video.json", "utf8")
+);
+Inject Parameters
+
+Before sending workflow to ComfyUI:
+
+workflow.nodes.prompt.inputs.text = prompt;
+workflow.nodes.load_image.inputs.image = imagePath;
+Submit Workflow
+
+Send workflow to ComfyUI:
+
+POST http://localhost:8188/prompt
+Poll for Completion
+
+Use:
+
+GET /history/{prompt_id}
+
+When complete, download output.
+
+TASK 3 — Automatic Video Conversion
+
+Wan2GP outputs formats such as:
+
+WEBP
+GIF
+
+DirectorOS timeline requires:
+
+MP4
+
+Add automatic conversion.
+
+Update Video Connector
+
+After download:
+
+WEBP → MP4
+
+Example:
+
+await execFile("ffmpeg", [
+  "-i",
+  inputPath,
+  "-c:v",
+  "libx264",
+  "-pix_fmt",
+  "yuv420p",
+  outputPath
+]);
+
+Store the MP4 as the clip asset.
+
+TASK 4 — GPU Task Scheduler
+
+Video generation is GPU-intensive.
+
+Current worker processes jobs sequentially. This can cause VRAM exhaustion or blocking.
+
+Add GPU-aware job scheduling.
+
+Job Types
+
+Add priority classification:
+
+IMAGE_GENERATION (low GPU)
+VIDEO_GENERATION (high GPU)
+RENDER (CPU)
+Scheduler Module
+
+Create:
+
+services/job-queue/gpu-scheduler.ts
+
+Example scheduler state:
+
+const gpuState = {
+  busy: false,
+  currentJob: null
+};
+Scheduler Logic
+
+Pseudo:
+
+while(true)
+
+  if GPU free
+      take next VIDEO_GENERATION job
+      mark GPU busy
+      process job
+
+  else
+      process IMAGE or RENDER jobs
+GPU Release
+
+When video generation completes:
+
+gpuState.busy = false
+Worker Split
+
+Create separate workers:
+
+worker-image.ts
+worker-video.ts
+worker-render.ts
+
+Each worker requests jobs from scheduler.
+
+TASK 5 — Settings Page Updates
+
+Update AI Services page to show:
+
+LLM Provider
+ComfyUI
+Wan2GP
+FFmpeg
+Wan2GP Detection
+
+Instead of checking a server:
+
+Attempt to load workflow:
+
+workflows/wan_video.json
+
+If workflow executes successfully in ComfyUI, mark Wan2GP as available.
+
+TASK 6 — Video Studio UI Update
+
+Current UI lists cloud models:
+
+Kling
+Runway
+Pika
+MiniMax
+
+Replace with local model options:
+
+Wan2GP (ComfyUI)
+LTX Video (future)
+Hunyuan Video (future)
+Final Architecture
+
+After these upgrades the system should look like:
+
+DirectorOS
+│
+├ LLM Service
+│   ├ LM Studio
+│   ├ OpenAI
+│   └ future providers
+│
+├ ComfyUI Connector
+│   ├ SDXL image generation
+│   └ Wan2GP video generation
+│
+├ GPU Task Scheduler
+│   ├ image worker
+│   ├ video worker
+│   └ render worker
+│
+└ FFmpeg Renderer
+Success Criteria
+
+The following must work:
+
+User selects LLM provider
+AI Director uses selected provider
+Images generated through ComfyUI workflows
+Videos generated through Wan2GP workflows
+Video output automatically converted to MP4
+GPU heavy jobs scheduled properly
+Future Compatibility
+
+This architecture must allow easy addition of:
+
+Ollama
+Flux
+LTX Video
+Hunyuan Video
+additional ComfyUI workflows
+
+No connectors should be hardcoded to specific models.

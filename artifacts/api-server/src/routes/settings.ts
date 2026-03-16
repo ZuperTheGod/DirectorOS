@@ -7,6 +7,7 @@ const router: IRouter = Router();
 router.get("/settings", async (_req, res): Promise<void> => {
   const config = await getConfig();
   res.json({
+    llmProvider: config.llmProvider,
     lmstudio: {
       url: config.lmstudio.url,
       model: config.lmstudio.model || "",
@@ -29,6 +30,7 @@ router.get("/settings", async (_req, res): Promise<void> => {
 });
 
 const ALLOWED_FIELDS: Record<string, string[]> = {
+  general: ["llmProvider"],
   lmstudio: ["url", "model"],
   comfyui: ["url"],
   wan2gp: ["url"],
@@ -63,7 +65,15 @@ router.put("/settings", async (req, res): Promise<void> => {
   const updates: Array<{ category: string; key: string; value: string }> = [];
   const errors: string[] = [];
 
+  if (body.llmProvider && typeof body.llmProvider === "string") {
+    const validProviders = ["auto", "lmstudio", "openai"];
+    if (validProviders.includes(body.llmProvider)) {
+      updates.push({ category: "general", key: "llmProvider", value: body.llmProvider });
+    }
+  }
+
   for (const [category, allowedKeys] of Object.entries(ALLOWED_FIELDS)) {
+    if (category === "general") continue;
     const section = body[category];
     if (!section || typeof section !== "object") continue;
     for (const key of allowedKeys) {
@@ -94,6 +104,7 @@ router.put("/settings", async (req, res): Promise<void> => {
   res.json({
     success: true,
     config: {
+      llmProvider: config.llmProvider,
       lmstudio: { url: config.lmstudio.url, model: config.lmstudio.model },
       comfyui: { url: config.comfyui.url },
       wan2gp: { url: config.wan2gp.url },

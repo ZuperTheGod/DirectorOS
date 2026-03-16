@@ -57,7 +57,7 @@ export default function VideoStudio() {
   const [cameraMotion, setCameraMotion] = useState("static");
   const [motionStrength, setMotionStrength] = useState([128]);
   const [vfx, setVfx] = useState("none");
-  const [recommendedModel, setRecommendedModel] = useState("kling");
+  const [selectedModel, setSelectedModel] = useState("wan2gp");
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [aiReasoning, setAiReasoning] = useState<string | null>(null);
@@ -114,7 +114,6 @@ export default function VideoStudio() {
 
       const data = await res.json();
       setVideoPrompt(data.videoPrompt);
-      setRecommendedModel(data.recommendedModel || "kling");
       setAiReasoning(data.reasoning || null);
 
       if (data.settings?.cameraMotion) {
@@ -154,6 +153,7 @@ export default function VideoStudio() {
           prompt: videoPrompt,
           frames: Math.round((selectedShot.durationMs / 1000) * 24),
           motionStrength: motionStrength[0],
+          model: selectedModel,
         }),
       });
 
@@ -238,17 +238,16 @@ export default function VideoStudio() {
 
             <div className="space-y-3">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                Recommended Model
+                Video Model
               </Label>
-              <Select value={recommendedModel} onValueChange={setRecommendedModel}>
+              <Select value={selectedModel} onValueChange={setSelectedModel}>
                 <SelectTrigger className="bg-background border-white/10 rounded-xl h-11">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="kling">Kling (Cinematic)</SelectItem>
-                  <SelectItem value="runway">Runway Gen-3 (Versatile)</SelectItem>
-                  <SelectItem value="pika">Pika (Stylized)</SelectItem>
-                  <SelectItem value="minimax">MiniMax (Fast)</SelectItem>
+                  <SelectItem value="wan2gp">Wan2GP (ComfyUI)</SelectItem>
+                  <SelectItem value="ltx-video" disabled>LTX Video (Coming Soon)</SelectItem>
+                  <SelectItem value="hunyuan-video" disabled>Hunyuan Video (Coming Soon)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -344,7 +343,15 @@ export default function VideoStudio() {
       <div className="flex-1 flex flex-col bg-[#050505] relative">
         <div className="flex-1 p-8 flex flex-col items-center justify-center relative">
           <div className="w-full max-w-4xl aspect-[16/9] bg-background border border-white/10 rounded-xl overflow-hidden shadow-2xl relative group">
-            {selectedShot?.thumbnailUrl ? (
+            {generatedVideoUrl ? (
+              <video
+                src={generatedVideoUrl}
+                className="w-full h-full object-cover"
+                controls
+                autoPlay
+                loop
+              />
+            ) : selectedShot?.thumbnailUrl ? (
               <img
                 src={`${BASE}${selectedShot.thumbnailUrl}`}
                 alt="Source Frame"
@@ -355,16 +362,20 @@ export default function VideoStudio() {
                 <Camera className="w-16 h-16" />
               </div>
             )}
-            <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors">
-              <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 cursor-pointer hover:scale-110 transition-transform hover:bg-white/20">
-                <Play className="w-6 h-6 text-white ml-1" />
+            {!generatedVideoUrl && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors">
+                <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 cursor-pointer hover:scale-110 transition-transform hover:bg-white/20">
+                  <Play className="w-6 h-6 text-white ml-1" />
+                </div>
               </div>
-            </div>
-            <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-black/80 to-transparent flex items-end px-4 pb-3">
-              <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden cursor-pointer">
-                <div className="w-0 h-full bg-primary" />
+            )}
+            {!generatedVideoUrl && (
+              <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-black/80 to-transparent flex items-end px-4 pb-3">
+                <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden cursor-pointer">
+                  <div className="w-0 h-full bg-primary" />
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {isGeneratingVideo && (
@@ -375,7 +386,7 @@ export default function VideoStudio() {
             >
               <Loader2 className="w-4 h-4 animate-spin text-primary" />
               <span className="text-sm text-muted-foreground">
-                Generating video via Wan2...
+                Generating video via ComfyUI (Wan2GP)...
               </span>
             </motion.div>
           )}
@@ -400,6 +411,7 @@ export default function VideoStudio() {
                   setSelectedShot(shot);
                   setVideoPrompt(shot.promptSummary);
                   setAiReasoning(null);
+                  setGeneratedVideoUrl(null);
                   if (shot.cameraIntent?.movement) {
                     setCameraMotion(shot.cameraIntent.movement);
                   }

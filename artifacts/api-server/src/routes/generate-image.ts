@@ -8,7 +8,7 @@ import {
 } from "@workspace/db";
 import { buildImagePrompt } from "../services/director-agent";
 import { enqueueImageJob } from "../services/job-queue/queue";
-import { chatCompletion } from "../services/connectors/llm-connector";
+import { getLLMProvider } from "../services/llm/llm-service";
 
 const router: IRouter = Router();
 
@@ -124,7 +124,8 @@ router.post("/shots/:shotId/generate-video-prompt", async (req, res): Promise<vo
   }
 
   try {
-    const content = await chatCompletion({
+    const llm = await getLLMProvider();
+    const content = await llm.chat({
       messages: [
         {
           role: "system",

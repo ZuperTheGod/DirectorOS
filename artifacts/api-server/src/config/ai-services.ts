@@ -17,6 +17,7 @@ export interface OpenAIConfig {
 }
 
 export interface AIServicesConfig {
+  llmProvider: string;
   lmstudio: ServiceConfig;
   comfyui: ServiceConfig;
   wan2gp: ServiceConfig;
@@ -25,6 +26,7 @@ export interface AIServicesConfig {
 }
 
 const defaults: AIServicesConfig = {
+  llmProvider: process.env.LLM_PROVIDER || "auto",
   lmstudio: {
     url: process.env.LMSTUDIO_URL || "http://localhost:1234",
     enabled: true,
@@ -70,7 +72,9 @@ export async function getConfig(): Promise<AIServicesConfig> {
     const cfg = structuredClone(defaults);
 
     for (const row of rows) {
-      if (row.category === "lmstudio") {
+      if (row.category === "general") {
+        if (row.key === "llmProvider" && row.value) cfg.llmProvider = row.value;
+      } else if (row.category === "lmstudio") {
         if (row.key === "url" && row.value) cfg.lmstudio.url = row.value;
         if (row.key === "model" && row.value) cfg.lmstudio.model = row.value;
       } else if (row.category === "comfyui") {

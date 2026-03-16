@@ -1,0 +1,47 @@
+{
+  "1": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "",
+      "clip": ["4", 0]
+    }
+  },
+  "2": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "",
+      "clip": ["4", 0]
+    }
+  },
+  "3": {
+    "class_type": "WanTextToVideo",
+    "inputs": {
+      "positive": ["1", 0],
+      "negative": ["2", 0],
+      "model": ["4", 0],
+      "width": 832,
+      "height": 480,
+      "num_frames": 81,
+      "steps": 30,
+      "cfg": 5.0,
+      "seed": -1,
+      "sampler": "unipc_bh2"
+    }
+  },
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "wan2.1_t2v.safetensors"
+    }
+  },
+  "5": {
+    "class_type": "SaveAnimatedWEBP",
+    "inputs": {
+      "images": ["3", 0],
+      "filename_prefix": "directoros_video",
+      "fps": 24,
+      "quality": 95,
+      "method": "default"
+    }
+  }
+}
