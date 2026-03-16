@@ -20,6 +20,11 @@ router.get("/settings", async (_req, res): Promise<void> => {
     ffmpeg: {
       path: config.ffmpeg.path,
     },
+    openai: {
+      url: config.openai.url,
+      apiKey: config.openai.apiKey ? "••••••••" + config.openai.apiKey.slice(-4) : "",
+      model: config.openai.model,
+    },
   });
 });
 
@@ -28,6 +33,7 @@ const ALLOWED_FIELDS: Record<string, string[]> = {
   comfyui: ["url"],
   wan2gp: ["url"],
   ffmpeg: ["path"],
+  openai: ["url", "apiKey", "model"],
 };
 
 function isValidUrl(str: string): boolean {
@@ -47,6 +53,8 @@ function validateField(category: string, key: string, value: string): string | n
   if (typeof value !== "string" || value.length > 512) return "Invalid value";
   if (key === "url" && value.length > 0 && !isValidUrl(value)) return `Invalid URL for ${category}.${key}`;
   if (category === "ffmpeg" && key === "path" && value.length > 0 && !isValidFfmpegPath(value)) return `Invalid path for ffmpeg`;
+  if (key === "apiKey") return null;
+  if (key === "model") return null;
   return null;
 }
 
@@ -61,6 +69,7 @@ router.put("/settings", async (req, res): Promise<void> => {
     for (const key of allowedKeys) {
       if (section[key] === undefined) continue;
       const value = String(section[key]);
+      if (key === "apiKey" && (!value || value.trim() === "")) continue;
       const err = validateField(category, key, value);
       if (err) {
         errors.push(err);
@@ -89,6 +98,11 @@ router.put("/settings", async (req, res): Promise<void> => {
       comfyui: { url: config.comfyui.url },
       wan2gp: { url: config.wan2gp.url },
       ffmpeg: { path: config.ffmpeg.path },
+      openai: {
+        url: config.openai.url,
+        apiKey: config.openai.apiKey ? "••••••••" + config.openai.apiKey.slice(-4) : "",
+        model: config.openai.model,
+      },
     },
   });
 });

@@ -14,6 +14,7 @@ import {
   XCircle,
   Save,
   Pencil,
+  MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -37,6 +38,7 @@ interface SettingsData {
   comfyui: { url: string };
   wan2gp: { url: string };
   ffmpeg: { path: string };
+  openai: { url: string; apiKey: string; model: string };
 }
 
 const SERVICE_ICONS: Record<string, typeof Brain> = {
@@ -44,6 +46,7 @@ const SERVICE_ICONS: Record<string, typeof Brain> = {
   ComfyUI: ImageIcon,
   Wan2GP: Video,
   FFmpeg: Film,
+  "ChatGPT / OpenAI": MessageSquare,
 };
 
 const SERVICE_DESCRIPTIONS: Record<string, string> = {
@@ -51,9 +54,10 @@ const SERVICE_DESCRIPTIONS: Record<string, string> = {
   ComfyUI: "Image generation workflows using Stable Diffusion and custom pipelines",
   Wan2GP: "Video generation from images using Wan2.1 models via Gradio API",
   FFmpeg: "Timeline rendering and final video export",
+  "ChatGPT / OpenAI": "Cloud-based LLM for AI Director reasoning via OpenAI-compatible API",
 };
 
-const SERVICE_CONFIG_KEYS: Record<string, { category: string; fields: { key: string; label: string; placeholder: string }[] }> = {
+const SERVICE_CONFIG_KEYS: Record<string, { category: string; fields: { key: string; label: string; placeholder: string; type?: string }[] }> = {
   "LM Studio": {
     category: "lmstudio",
     fields: [
@@ -77,6 +81,14 @@ const SERVICE_CONFIG_KEYS: Record<string, { category: string; fields: { key: str
     category: "ffmpeg",
     fields: [
       { key: "path", label: "FFmpeg Path", placeholder: "ffmpeg" },
+    ],
+  },
+  "ChatGPT / OpenAI": {
+    category: "openai",
+    fields: [
+      { key: "url", label: "API Base URL", placeholder: "https://api.openai.com" },
+      { key: "apiKey", label: "API Key", placeholder: "sk-...", type: "password" },
+      { key: "model", label: "Model", placeholder: "gpt-4o-mini" },
     ],
   },
 };
@@ -113,6 +125,7 @@ export default function SettingsPage() {
         comfyui: { url: data.comfyui.url },
         wan2gp: { url: data.wan2gp.url },
         ffmpeg: { path: data.ffmpeg.path },
+        openai: { url: data.openai?.url || "https://api.openai.com", apiKey: "", model: data.openai?.model || "gpt-4o-mini" },
       });
     } catch {
       setSettings(null);
@@ -330,7 +343,7 @@ export default function SettingsPage() {
                             </label>
                             <div className="relative">
                               <input
-                                type="text"
+                                type={field.type || "text"}
                                 value={editedSettings[configDef.category]?.[field.key] || ""}
                                 onChange={(e) =>
                                   updateField(configDef.category, field.key, e.target.value)
@@ -355,7 +368,7 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
               <span className="bg-background px-3 py-1.5 rounded-lg border border-white/5">User Idea</span>
               <span className="text-white/20">&rarr;</span>
-              <span className="bg-primary/10 text-primary px-3 py-1.5 rounded-lg border border-primary/20">LM Studio</span>
+              <span className="bg-primary/10 text-primary px-3 py-1.5 rounded-lg border border-primary/20">LM Studio / ChatGPT</span>
               <span className="text-white/20">&rarr;</span>
               <span className="bg-background px-3 py-1.5 rounded-lg border border-white/5">Storyboard</span>
               <span className="text-white/20">&rarr;</span>

@@ -14,6 +14,7 @@ router.get("/services/status", async (_req, res): Promise<void> => {
       comfyui: { url: config.comfyui.url },
       wan2gp: { url: config.wan2gp.url },
       ffmpeg: { path: config.ffmpeg.path },
+      openai: { url: config.openai.url, model: config.openai.model },
     },
   });
 });

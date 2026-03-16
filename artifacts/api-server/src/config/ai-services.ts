@@ -8,11 +8,20 @@ export interface ServiceConfig {
   model?: string;
 }
 
+export interface OpenAIConfig {
+  url: string;
+  apiKey: string;
+  model: string;
+  enabled: boolean;
+  name: string;
+}
+
 export interface AIServicesConfig {
   lmstudio: ServiceConfig;
   comfyui: ServiceConfig;
   wan2gp: ServiceConfig;
   ffmpeg: { enabled: boolean; name: string; path: string };
+  openai: OpenAIConfig;
 }
 
 const defaults: AIServicesConfig = {
@@ -36,6 +45,13 @@ const defaults: AIServicesConfig = {
     enabled: true,
     name: "FFmpeg",
     path: process.env.FFMPEG_PATH || "ffmpeg",
+  },
+  openai: {
+    url: process.env.OPENAI_BASE_URL || "https://api.openai.com",
+    apiKey: process.env.OPENAI_API_KEY || "",
+    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+    enabled: true,
+    name: "ChatGPT / OpenAI",
   },
 };
 
@@ -63,6 +79,10 @@ export async function getConfig(): Promise<AIServicesConfig> {
         if (row.key === "url" && row.value) cfg.wan2gp.url = row.value;
       } else if (row.category === "ffmpeg") {
         if (row.key === "path" && row.value) cfg.ffmpeg.path = row.value;
+      } else if (row.category === "openai") {
+        if (row.key === "url" && row.value) cfg.openai.url = row.value;
+        if (row.key === "apiKey" && row.value) cfg.openai.apiKey = row.value;
+        if (row.key === "model" && row.value) cfg.openai.model = row.value;
       }
     }
 

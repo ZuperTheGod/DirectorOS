@@ -15,6 +15,7 @@ import {
   Wand2,
   Check,
   Pencil,
+  SendHorizontal,
 } from "lucide-react";
 import {
   useGetProject,
@@ -60,6 +61,7 @@ export default function Storyboard() {
   });
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [autoGenProgress, setAutoGenProgress] = useState({ current: 0, total: 0, message: "" });
+  const [isSendingToTimeline, setIsSendingToTimeline] = useState(false);
 
   const invalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}`] });
@@ -167,8 +169,23 @@ export default function Storyboard() {
     }
   };
 
+  const handleSendToTimeline = async () => {
+    setIsSendingToTimeline(true);
+    try {
+      const res = await fetch(`${BASE}/api/projects/${projectId}/clips/sync`, { method: "POST" });
+      if (res.ok) {
+        navigate(`/projects/${projectId}/editor`);
+        return;
+      }
+    } catch (err) {
+      console.error("Failed to send to timeline:", err);
+    }
+    setIsSendingToTimeline(false);
+  };
+
   const allShots = project?.scenes?.flatMap((s) => s.shots || []) || [];
   const allHaveFrames = allShots.length > 0 && allShots.every((s: any) => s.thumbnailUrl);
+  const shotsWithFrames = allShots.filter((s: any) => s.thumbnailUrl).length;
   const hasAnyShots = allShots.length > 0;
   const emptyShots = allShots.filter((s: any) => !s.thumbnailUrl).length;
 
@@ -217,6 +234,20 @@ export default function Storyboard() {
                   AI Generate All Images ({emptyShots})
                 </>
               )}
+            </Button>
+          )}
+          {shotsWithFrames > 0 && (
+            <Button
+              onClick={handleSendToTimeline}
+              disabled={isSendingToTimeline}
+              className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-500/90 hover:to-teal-600/90 text-white rounded-xl shadow-glow"
+            >
+              {isSendingToTimeline ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <SendHorizontal className="w-4 h-4 mr-2" />
+              )}
+              Send to Timeline ({shotsWithFrames})
             </Button>
           )}
           {allHaveFrames && (

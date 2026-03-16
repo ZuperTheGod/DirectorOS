@@ -1,0 +1,47 @@
+  Part 1: Critical Windows Compatibility Fixes
+  These changes ensure the project actually runs on Windows and local environments outside of the Replit container.
+
+
+   1. Fix API Server Startup:
+       * File: artifacts/api-server/package.json
+       * Change: Update the "dev" script.
+       * Instruction: Change "NODE_ENV=development tsx ./src/index.ts" to "set NODE_ENV=development && tsx
+         ./src/index.ts". The previous version is Linux-only and crashes on Windows.
+
+
+   2. Fix Database Migration Path:
+       * File: lib/db/drizzle.config.ts
+       * Change: Simplify the schema path.
+       * Instruction: Change schema: path.join(__dirname, "./src/schema/index.ts") to schema: "./src/schema/index.ts".
+         Using __dirname here causes drizzle-kit to fail to find the schema files during a push or generate command.
+
+
+   3. Enable Platform-Specific Binaries:
+       * File: pnpm-workspace.yaml
+       * Change: Remove the - overrides for Windows binaries.
+       * Instruction: Delete all lines in the overrides section that end with win32-x64-msvc: '-' or win32-arm64-msvc:
+         '-' for esbuild, rollup, lightningcss, and @tailwindcss/oxide. These lines explicitly block the installation of
+         necessary drivers for Windows users.
+
+  ---
+
+  Part 2: New Feature Requests
+
+
+   1. Add ChatGPT Integration:
+       * Instruction: Add a new integration for the OpenAI ChatGPT API. This should include adding OPENAI_API_KEY to the
+         .env template, creating a service in the lib/integrations folder to handle chat completions, and adding a
+         toggle/field in the Settings page to verify the connection.
+
+
+   2. Remove "Target Duration" Constraint:
+       * Instruction: In the project creation/home page UI, remove the "Target Duration" input field. The system should
+         allow for flexible video lengths that can be extended or shortened during the editing process rather than being
+         locked to a specific time at the start.
+
+
+   3. Storyboard-to-Timeline Automation:
+       * Location: Editor Page / Storyboard View.
+       * Instruction: Add a "Send to Timeline" button in the Editor's Storyboard section. When clicked, this button
+         should automatically place all completed/generated images onto the video timeline in the sequence they appear
+         in the storyboard.

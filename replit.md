@@ -2,12 +2,13 @@
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. DirectorOS is a frontend orchestration layer for filmmaking that connects to local AI tools via APIs. Complete end-to-end pipeline: User Idea → LM Studio (AI Director) → Storyboard → ComfyUI (Image Generation) → Wan2 (Video Generation) → Timeline → FFmpeg (Export).
+pnpm workspace monorepo using TypeScript. DirectorOS is a frontend orchestration layer for filmmaking that connects to local AI tools via APIs. Complete end-to-end pipeline: User Idea → LM Studio or ChatGPT (AI Director) → Storyboard → ComfyUI (Image Generation) → Wan2 (Video Generation) → Timeline → FFmpeg (Export).
 
 ## Architecture
 
 DirectorOS never hardcodes model providers. It uses service connectors with dynamic config (persisted in DB `settings` table, fallback to env vars):
 - **LLM Connector** → LM Studio (OpenAI-compatible API at localhost:1234)
+- **OpenAI Connector** → ChatGPT / OpenAI (cloud API at api.openai.com, configurable)
 - **Image Connector** → ComfyUI (REST API at localhost:8188)
 - **Video Connector** → Wan2GP (Gradio API at localhost:7860, github.com/deepbeepmeep/Wan2GP)
 - **Render Connector** → FFmpeg for timeline export
@@ -55,6 +56,7 @@ artifacts-monorepo/
 │   │       │   │   ├── llm-connector.ts    # LM Studio integration (chat + streaming)
 │   │       │   │   ├── image-connector.ts  # ComfyUI integration (workflow submission + polling)
 │   │       │   │   ├── video-connector.ts  # Wan2GP integration (video via Gradio API)
+│   │       │   │   ├── openai-connector.ts # ChatGPT/OpenAI integration (cloud LLM)
 │   │       │   │   └── render-connector.ts # FFmpeg integration (timeline export)
 │   │       │   ├── job-queue/
 │   │       │   │   ├── queue.ts            # enqueueJob, enqueueImageJob, enqueueVideoJob, enqueueRenderJob
@@ -135,6 +137,9 @@ All mounted under `/api`:
 - `COMFYUI_URL` — ComfyUI endpoint (default: `http://localhost:8188`)
 - `WAN2GP_URL` — Wan2GP endpoint (default: `http://localhost:7860`)
 - `FFMPEG_PATH` — FFmpeg binary path (default: `ffmpeg`)
+- `OPENAI_API_KEY` — OpenAI API key (optional, for ChatGPT integration)
+- `OPENAI_BASE_URL` — OpenAI API base URL (default: `https://api.openai.com`)
+- `OPENAI_MODEL` — OpenAI model name (default: `gpt-4o-mini`)
 - All settings can be overridden via the Settings UI (stored in DB `settings` table)
 
 ## Image/Video Pipeline

@@ -1,5 +1,32 @@
-import { chatCompletion, streamChatCompletion } from "./connectors/llm-connector";
+import { chatCompletion as lmChatCompletion, streamChatCompletion as lmStreamChatCompletion } from "./connectors/llm-connector";
+import { chatCompletion as openaiChatCompletion, streamChatCompletion as openaiStreamChatCompletion } from "./connectors/openai-connector";
 import type { LLMMessage } from "./connectors/llm-connector";
+import { getConfig } from "../config/ai-services";
+
+async function getActiveProvider(): Promise<"openai" | "lmstudio"> {
+  const config = await getConfig();
+  if (config.openai.apiKey && config.openai.apiKey.length > 0) {
+    return "openai";
+  }
+  return "lmstudio";
+}
+
+async function chatCompletion(options: { messages: LLMMessage[]; temperature?: number; max_tokens?: number; response_format?: { type: string } }): Promise<string> {
+  const provider = await getActiveProvider();
+  if (provider === "openai") {
+    return openaiChatCompletion(options);
+  }
+  return lmChatCompletion(options);
+}
+
+async function* streamChatCompletion(options: { messages: LLMMessage[]; temperature?: number; max_tokens?: number }): AsyncGenerator<string> {
+  const provider = await getActiveProvider();
+  if (provider === "openai") {
+    yield* openaiStreamChatCompletion(options);
+  } else {
+    yield* lmStreamChatCompletion(options);
+  }
+}
 
 const DIRECTOR_SYSTEM_PROMPT = `You are the AI Director — a world-class creative collaborator for filmmaking. You think like a seasoned film director combined with a visual artist and cinematographer.
 

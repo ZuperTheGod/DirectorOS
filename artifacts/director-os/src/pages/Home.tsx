@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { Plus, Film, Clock, Calendar } from "lucide-react";
+import { Plus, Film, Calendar } from "lucide-react";
 import { format } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
 import { 
@@ -34,7 +34,6 @@ export default function Home() {
     name: "",
     description: "",
     aspectRatio: "16:9",
-    targetDuration: 60
   });
 
   const handleCreate = (e: React.FormEvent) => {
@@ -45,7 +44,7 @@ export default function Home() {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
           setIsDialogOpen(false);
-          setFormData({ name: "", description: "", aspectRatio: "16:9", targetDuration: 60 });
+          setFormData({ name: "", description: "", aspectRatio: "16:9" });
         }
       }
     );
@@ -96,31 +95,19 @@ export default function Home() {
                     placeholder="A cyberpunk thriller about a rogue AI..."
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-3">
-                    <Label htmlFor="aspect">Aspect Ratio</Label>
-                    <Select value={formData.aspectRatio} onValueChange={(v) => setFormData(p => ({ ...p, aspectRatio: v }))}>
-                      <SelectTrigger className="bg-background border-border h-12 rounded-xl">
-                        <SelectValue placeholder="Select ratio" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="16:9">16:9 (Standard)</SelectItem>
-                        <SelectItem value="2.35:1">2.35:1 (Cinematic)</SelectItem>
-                        <SelectItem value="9:16">9:16 (Vertical)</SelectItem>
-                        <SelectItem value="1:1">1:1 (Square)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-3">
-                    <Label htmlFor="duration">Target Duration (sec)</Label>
-                    <Input 
-                      id="duration" 
-                      type="number"
-                      value={formData.targetDuration}
-                      onChange={(e) => setFormData(p => ({ ...p, targetDuration: parseInt(e.target.value) || 0 }))}
-                      className="bg-background border-border h-12 rounded-xl focus-visible:ring-primary" 
-                    />
-                  </div>
+                <div className="grid gap-3">
+                  <Label htmlFor="aspect">Aspect Ratio</Label>
+                  <Select value={formData.aspectRatio} onValueChange={(v) => setFormData(p => ({ ...p, aspectRatio: v }))}>
+                    <SelectTrigger className="bg-background border-border h-12 rounded-xl">
+                      <SelectValue placeholder="Select ratio" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="16:9">16:9 (Standard)</SelectItem>
+                      <SelectItem value="2.35:1">2.35:1 (Cinematic)</SelectItem>
+                      <SelectItem value="9:16">9:16 (Vertical)</SelectItem>
+                      <SelectItem value="1:1">1:1 (Square)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <DialogFooter>
@@ -197,8 +184,8 @@ export default function Home() {
                         {format(new Date(project.updatedAt), "MMM d, yyyy")}
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5" />
-                        {project.targetDuration ? `${project.targetDuration}s` : "TBD"}
+                        <Film className="w-3.5 h-3.5" />
+                        {project.aspectRatio || "16:9"}
                       </div>
                     </div>
                   </div>

@@ -91,6 +91,13 @@ Expected output: `DATABASE_URL="postgresql://postgres:postgres@localhost:5432/di
 
 NOTE: If the PostgreSQL password is NOT `postgres`, edit the .env file and replace `postgres` (the second one, after the colon) with the actual password.
 
+### Optional: Add OpenAI API Key
+If using ChatGPT instead of (or alongside) LM Studio, add to the `.env` file:
+```
+echo OPENAI_API_KEY=sk-your-key-here >> .env
+```
+Or configure it later through the Settings page in the app.
+
 ---
 
 ## STEP 4: Install Project Dependencies
